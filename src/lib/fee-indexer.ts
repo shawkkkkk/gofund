@@ -2,10 +2,10 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import {
   PUMP_SDK,
   bondingCurvePda,
-  canonicalPumpPoolPda,
 } from "@pump-fun/pump-sdk";
+import { canonicalPumpPoolPda } from "@pump-fun/pump-swap-sdk";
 import { db, query } from "@/lib/db";
-import { rpcUrl, treasuryAddress } from "@/lib/config";
+import { rpcUrl, treasuryAddress, USDC_MINT } from "@/lib/config";
 
 type Venue = "PUMP" | "PUMP_SWAP";
 
@@ -266,7 +266,9 @@ async function indexVenue(token: IndexableToken, venue: Venue) {
   const address =
     venue === "PUMP"
       ? bondingCurvePda(mint)
-      : canonicalPumpPoolPda(mint);
+      : token.quote_asset === "USDC"
+        ? canonicalPumpPoolPda(mint, new PublicKey(USDC_MINT))
+        : canonicalPumpPoolPda(mint);
 
   if (venue === "PUMP_SWAP") {
     const exists = await conn.getAccountInfo(address, "confirmed");

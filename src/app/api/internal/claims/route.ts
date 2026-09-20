@@ -1,22 +1,15 @@
 import { NextResponse } from "next/server";
 import { db, query } from "@/lib/db";
 import {
-  broadcastPreparedDistribution,
-  confirmPreparedDistribution,
+  broadcastPreparedCollection,
+  confirmPreparedCollection,
   currentBlockHeight,
-  prepareCreatorFeeDistribution,
-  readDistributionResult,
-  verifyDirectCreatorRouting,
-  type PreparedDistribution,
+  prepareCreatorFeeCollection,
+  readCollectionResult,
+  type PreparedCollection,
 } from "@/lib/pump-server";
 
-type TokenRow = {
-  id: string;
-  mint: string;
-  quote_asset: "SOL" | "USDC";
-};
-
-type ClaimRow = {
+type CollectionRow = {
   signature: string;
   serialized_tx: string | null;
   recent_blockhash: string | null;
@@ -30,55 +23,57 @@ function authorized(request: Request) {
   return Boolean(expected && supplied === expected);
 }
 
-async function setAttemptStatus(
+async function setStatus(
   signature: string,
   status: "SENT" | "FAILED" | "EXPIRED",
   error?: string,
 ) {
   await query(
-    `update claims
-     set status = $1,
-         error = $2
-     where signature = $3
-       and status in ('PREPARED','SENT')`,
+    `update collections
+     set status=$1,error=$2
+     where signature=$3 and status in ('PREPARED','SENT')`,
     [status, error || null, signature],
   );
 }
 
-async function finalizeClaim(
-  token: TokenRow,
+async function finalize(
   signature: string,
-  amountBaseUnits: bigint,
+  solAmountBaseUnits: bigint,
+  usdcAmountBaseUnits: bigint,
 ) {
   const client = await db().connect();
   try {
     await client.query("begin");
     const updated = await client.query(
-      `update claims
-       set amount_base_units = $1,
-           status = 'CONFIRMED',
-           error = null,
-           confirmed_at = coalesce(confirmed_at, now())
-       where signature = $2
-         and token_id = $3
+      `update collections
+       set sol_amount_base_units=$1,
+           usdc_amount_base_units=$2,
+           status='CONFIRMED',
+           error=null,
+           confirmed_at=coalesce(confirmed_at,now())
+       where signature=$3
          and status in ('PREPARED','SENT','CONFIRMED')
        returning id`,
-      [amountBaseUnits.toString(), signature, token.id],
+      [
+        solAmountBaseUnits.toString(),
+        usdcAmountBaseUnits.toString(),
+        signature,
+      ],
     );
 
     if (!updated.rowCount) {
-      throw new Error("Claim journal row was not found during finalization");
+      throw new Error("Collection journal row was not found during finalization");
     }
 
     await client.query(
       `insert into audit_log(event_type,subject_type,subject_id,payload)
-       values('CLAIM_CONFIRMED','TOKEN',$1,$2::jsonb)`,
+       values('TREASURY_COLLECTION_CONFIRMED','COLLECTION',$1,$2::jsonb)`,
       [
-        token.mint,
+        signature,
         JSON.stringify({
           signature,
-          asset: token.quote_asset,
-          amountBaseUnits: amountBaseUnits.toString(),
+          solAmountBaseUnits: solAmountBaseUnits.toString(),
+          usdcAmountBaseUnits: usdcAmountBaseUnits.toString(),
         }),
       ],
     );
@@ -91,41 +86,41 @@ async function finalizeClaim(
   }
 }
 
-async function recoverOpenAttempt(token: TokenRow) {
-  const existing = await query<ClaimRow>(
-    `select signature,serialized_tx,recent_blockhash,last_valid_block_height::text,status
-     from claims
-     where token_id = $1
-       and status in ('PREPARED','SENT')
+async function recoverOpenCollection() {
+  const existing = await query<CollectionRow>(
+    `select signature,serialized_tx,recent_blockhash,
+            last_valid_block_height::text,status
+     from collections
+     where status in ('PREPARED','SENT')
      order by created_at asc
      limit 1`,
-    [token.id],
   );
 
   if (!existing.rowCount) return { recovered: false as const };
 
   const attempt = existing.rows[0];
-  const onChain = await readDistributionResult(
-    attempt.signature,
-    token.quote_asset,
-    2,
-  );
+  const onChain = await readCollectionResult(attempt.signature, 2);
 
   if (onChain.found) {
     if (!onChain.ok) {
-      await setAttemptStatus(
+      await setStatus(
         attempt.signature,
         "FAILED",
-        onChain.error || "On-chain transaction failed",
+        onChain.error || "On-chain collection failed",
       );
-      return { recovered: false as const, failedAttempt: attempt.signature };
+      return { recovered: false as const, failed: attempt.signature };
     }
 
-    await finalizeClaim(token, attempt.signature, onChain.amountBaseUnits);
+    await finalize(
+      attempt.signature,
+      onChain.solAmountBaseUnits,
+      onChain.usdcAmountBaseUnits,
+    );
     return {
       recovered: true as const,
       signature: attempt.signature,
-      amountBaseUnits: onChain.amountBaseUnits,
+      solAmountBaseUnits: onChain.solAmountBaseUnits,
+      usdcAmountBaseUnits: onChain.usdcAmountBaseUnits,
     };
   }
 
@@ -134,133 +129,105 @@ async function recoverOpenAttempt(token: TokenRow) {
     !attempt.recent_blockhash ||
     !attempt.last_valid_block_height
   ) {
-    await setAttemptStatus(
-      attempt.signature,
-      "FAILED",
-      "Incomplete recovery journal",
-    );
-    return { recovered: false as const, failedAttempt: attempt.signature };
+    await setStatus(attempt.signature, "FAILED", "Incomplete collection journal");
+    return { recovered: false as const, failed: attempt.signature };
   }
 
   const lastValidBlockHeight = Number(attempt.last_valid_block_height);
   if ((await currentBlockHeight()) > lastValidBlockHeight) {
-    await setAttemptStatus(
+    await setStatus(
       attempt.signature,
       "EXPIRED",
       "Transaction blockhash expired before confirmation",
     );
-    return { recovered: false as const, expiredAttempt: attempt.signature };
+    return { recovered: false as const, expired: attempt.signature };
   }
 
-  const prepared: PreparedDistribution = {
+  const prepared: PreparedCollection = {
     signature: attempt.signature,
     serializedTx: attempt.serialized_tx,
     blockhash: attempt.recent_blockhash,
     lastValidBlockHeight,
   };
 
-  await broadcastPreparedDistribution(prepared);
-  await setAttemptStatus(prepared.signature, "SENT");
-  await confirmPreparedDistribution(prepared);
+  await broadcastPreparedCollection(prepared);
+  await setStatus(prepared.signature, "SENT");
+  await confirmPreparedCollection(prepared);
 
-  const confirmed = await readDistributionResult(
-    prepared.signature,
-    token.quote_asset,
-    4,
-  );
+  const confirmed = await readCollectionResult(prepared.signature, 4);
   if (!confirmed.found) {
-    throw new Error("Recovered distribution confirmed but receipt is not indexed yet");
+    throw new Error("Collection confirmed but receipt is not indexed yet");
   }
   if (!confirmed.ok) {
-    await setAttemptStatus(
+    await setStatus(
       prepared.signature,
       "FAILED",
-      confirmed.error || "On-chain transaction failed",
+      confirmed.error || "On-chain collection failed",
     );
-    return { recovered: false as const, failedAttempt: prepared.signature };
+    return { recovered: false as const, failed: prepared.signature };
   }
 
-  await finalizeClaim(token, prepared.signature, confirmed.amountBaseUnits);
+  await finalize(
+    prepared.signature,
+    confirmed.solAmountBaseUnits,
+    confirmed.usdcAmountBaseUnits,
+  );
+
   return {
     recovered: true as const,
     signature: prepared.signature,
-    amountBaseUnits: confirmed.amountBaseUnits,
+    solAmountBaseUnits: confirmed.solAmountBaseUnits,
+    usdcAmountBaseUnits: confirmed.usdcAmountBaseUnits,
   };
 }
 
-async function processToken(token: TokenRow) {
-  const verified = await verifyDirectCreatorRouting(token.mint);
-  if (!verified.ok) throw new Error(verified.reason);
+async function collect() {
+  const recovery = await recoverOpenCollection();
+  if (recovery.recovered) return recovery;
 
-  const recovery = await recoverOpenAttempt(token);
-  if (recovery.recovered) {
-    return {
-      signature: recovery.signature,
-      amountBaseUnits: recovery.amountBaseUnits,
-      recovered: true,
-    };
-  }
-
-  const prepared = await prepareCreatorFeeDistribution(
-    token.mint,
-    token.quote_asset,
-  );
-  if (!prepared) {
-    return {
-      signature: null,
-      amountBaseUnits: 0n,
-      recovered: false,
-    };
-  }
+  const prepared = await prepareCreatorFeeCollection();
 
   await query(
-    `insert into claims(
-       token_id,
-       signature,
-       asset,
-       amount_base_units,
-       status,
-       serialized_tx,
-       recent_blockhash,
-       last_valid_block_height
-     ) values($1,$2,$3,null,'PREPARED',$4,$5,$6)
+    `insert into collections(
+       signature,status,serialized_tx,recent_blockhash,last_valid_block_height
+     ) values($1,'PREPARED',$2,$3,$4)
      on conflict(signature) do nothing`,
     [
-      token.id,
       prepared.signature,
-      token.quote_asset,
       prepared.serializedTx,
       prepared.blockhash,
       prepared.lastValidBlockHeight,
     ],
   );
 
-  await broadcastPreparedDistribution(prepared);
-  await setAttemptStatus(prepared.signature, "SENT");
-  await confirmPreparedDistribution(prepared);
+  await broadcastPreparedCollection(prepared);
+  await setStatus(prepared.signature, "SENT");
+  await confirmPreparedCollection(prepared);
 
-  const confirmed = await readDistributionResult(
-    prepared.signature,
-    token.quote_asset,
-    4,
-  );
+  const confirmed = await readCollectionResult(prepared.signature, 4);
   if (!confirmed.found) {
-    throw new Error("Distribution confirmed but receipt is not indexed yet");
+    throw new Error("Collection confirmed but receipt is not indexed yet");
   }
   if (!confirmed.ok) {
-    await setAttemptStatus(
+    await setStatus(
       prepared.signature,
       "FAILED",
-      confirmed.error || "On-chain transaction failed",
+      confirmed.error || "On-chain collection failed",
     );
-    throw new Error("Distribution transaction failed on-chain");
+    throw new Error("Creator-fee collection failed on-chain");
   }
 
-  await finalizeClaim(token, prepared.signature, confirmed.amountBaseUnits);
+  await finalize(
+    prepared.signature,
+    confirmed.solAmountBaseUnits,
+    confirmed.usdcAmountBaseUnits,
+  );
+
   return {
+    recovered: false as const,
     signature: prepared.signature,
-    amountBaseUnits: confirmed.amountBaseUnits,
-    recovered: false,
+    solAmountBaseUnits: confirmed.solAmountBaseUnits,
+    usdcAmountBaseUnits: confirmed.usdcAmountBaseUnits,
   };
 }
 
@@ -269,55 +236,41 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const tokens = await query<TokenRow>(
-    `select id::text,mint,quote_asset
-     from tokens
-     where fee_status = 'LOCKED'
-     order by locked_at asc
-     limit 50`,
-  );
+  const lockClient = await db().connect();
+  let locked = false;
 
-  const results: Array<Record<string, unknown>> = [];
+  try {
+    const lock = await lockClient.query<{ locked: boolean }>(
+      "select pg_try_advisory_lock(hashtext('GOFUND_COLLECTION')) as locked",
+    );
+    locked = Boolean(lock.rows[0]?.locked);
 
-  for (const token of tokens.rows) {
-    const lockClient = await db().connect();
-    let locked = false;
-    try {
-      const lock = await lockClient.query<{ locked: boolean }>(
-        "select pg_try_advisory_lock(hashtext('GOFUND_CLAIM'), hashtext($1)) as locked",
-        [token.id],
-      );
-      locked = Boolean(lock.rows[0]?.locked);
-
-      if (!locked) {
-        results.push({ mint: token.mint, ok: true, skipped: "already processing" });
-        continue;
-      }
-
-      const distributed = await processToken(token);
-      results.push({
-        mint: token.mint,
+    if (!locked) {
+      return NextResponse.json({
         ok: true,
-        signature: distributed.signature,
-        amountBaseUnits: distributed.amountBaseUnits.toString(),
-        recovered: distributed.recovered,
+        skipped: "collection already in progress",
       });
-    } catch (e) {
-      results.push({
-        mint: token.mint,
-        ok: false,
-        error: e instanceof Error ? e.message : "distribution failed",
-      });
-    } finally {
-      if (locked) {
-        await lockClient.query(
-          "select pg_advisory_unlock(hashtext('GOFUND_CLAIM'), hashtext($1))",
-          [token.id],
-        ).catch(() => undefined);
-      }
-      lockClient.release();
     }
-  }
 
-  return NextResponse.json({ processed: results.length, results });
+    const result = await collect();
+    return NextResponse.json({
+      ok: true,
+      signature: result.signature,
+      recovered: result.recovered,
+      solAmountBaseUnits: result.solAmountBaseUnits.toString(),
+      usdcAmountBaseUnits: result.usdcAmountBaseUnits.toString(),
+    });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "collection failed" },
+      { status: 500 },
+    );
+  } finally {
+    if (locked) {
+      await lockClient
+        .query("select pg_advisory_unlock(hashtext('GOFUND_COLLECTION'))")
+        .catch(() => undefined);
+    }
+    lockClient.release();
+  }
 }

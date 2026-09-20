@@ -16,9 +16,6 @@ import { USDC_MINT } from "@/lib/config";
 type Preview = {
   canonicalUrl: string;
   slug: string;
-  title: string;
-  description: string | null;
-  imageUrl: string | null;
 };
 
 type WalletProvider = {
@@ -50,6 +47,7 @@ const PENDING_KEY = "gofund_pending_lock";
 export default function LaunchForm() {
   const [campaignUrl, setCampaignUrl] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [campaignTitle, setCampaignTitle] = useState("");
   const [name, setName] = useState("");
   const [symbol, setSymbol] = useState("");
   const [description, setDescription] = useState("");
@@ -102,8 +100,6 @@ export default function LaunchForm() {
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Could not preview campaign");
       setPreview(body);
-      if (!description) setDescription("Creator fees support " + body.title + ".");
-      if (!imageUrl && body.imageUrl) setImageUrl(body.imageUrl);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not preview campaign");
     }
@@ -236,7 +232,8 @@ export default function LaunchForm() {
     e.preventDefault();
     setError("");
     setStatus([]);
-    if (!preview) return setError("Preview and verify the campaign first");
+    if (!preview) return setError("Validate the campaign URL first");
+    if (!campaignTitle.trim()) return setError("Enter a fundraiser display label");
     if (!treasury) return setError("GoFund treasury is not configured yet");
 
     setBusy(true);
@@ -252,6 +249,7 @@ export default function LaunchForm() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           campaignUrl: preview.canonicalUrl,
+          campaignTitle,
           name,
           symbol,
           description,
@@ -307,10 +305,15 @@ export default function LaunchForm() {
       </div>
 
       {preview && <div className="preview">
-        <strong>{preview.title}</strong>
-        <p className="muted">{preview.description}</p>
+        <strong>Campaign URL accepted</strong>
+        <p className="muted">GoFund stores this canonical link but does not scrape GoFundMe. Organizer endorsement is not implied unless separately verified.</p>
         <small>{preview.canonicalUrl}</small>
       </div>}
+
+      <div className="field">
+        <label>Fundraiser display label <span className="muted">(unverified until organizer claim)</span></label>
+        <input required maxLength={120} value={campaignTitle} onChange={(e) => setCampaignTitle(e.target.value)} placeholder="Help Maya Fight Leukemia" />
+      </div>
 
       <div className="inline">
         <div className="field"><label>2. Token name</label><input required maxLength={32} value={name} onChange={(e) => setName(e.target.value)} placeholder="Maya Strong" /></div>

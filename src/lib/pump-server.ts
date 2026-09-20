@@ -6,11 +6,7 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import { getAssociatedTokenAddress } from "@solana/spl-token";
-import {
-  OnlinePumpSdk,
-  PUMP_SDK,
-  feeSharingConfigPda,
-} from "@pump-fun/pump-sdk";
+import { OnlinePumpSdk, PUMP_SDK } from "@pump-fun/pump-sdk";
 import bs58 from "bs58";
 import { rpcUrl, treasuryAddress, USDC_MINT } from "@/lib/config";
 
@@ -39,6 +35,7 @@ export async function verifyLaunchTransaction(input: LaunchVerificationInput) {
   const conn = connection();
   const mint = new PublicKey(input.mint);
   const launcher = new PublicKey(input.launcherWallet);
+  const treasury = new PublicKey(treasuryAddress());
   const online = new OnlinePumpSdk(conn);
 
   const transaction = await conn.getTransaction(input.signature, {
@@ -54,21 +51,26 @@ export async function verifyLaunchTransaction(input: LaunchVerificationInput) {
     const match = /^Program data: (.+)$/.exec(log);
     if (!match) continue;
     try {
-      const decoded = PUMP_SDK.decodeCreateEventBc(Buffer.from(match[1], "base64"));
+      const decoded = PUMP_SDK.decodeCreateEventBc(
+        Buffer.from(match[1], "base64"),
+      );
       if (decoded.mint.equals(mint)) {
         event = decoded;
         break;
       }
     } catch {
-      // Other Anchor events share the same log prefix; ignore non-create data.
+      // Other Anchor events use the same log prefix.
     }
   }
 
   if (!event) {
     return { ok: false as const, reason: "Confirmed Pump create event not found" };
   }
-  if (!event.user.equals(launcher) || !event.creator.equals(launcher)) {
-    return { ok: false as const, reason: "Pump creator does not match launch wallet" };
+  if (!event.user.equals(launcher)) {
+    return { ok: false as const, reason: "Pump launch payer does not match the connected wallet" };
+  }
+  if (!event.creator.equals(treasury)) {
+    return { ok: false as const, reason: "Creator fees were not routed to the GoFund treasury at creation" };
   }
   if (event.name !== input.name || event.symbol !== input.symbol) {
     return { ok: false as const, reason: "On-chain token identity does not match draft" };
@@ -78,6 +80,10 @@ export async function verifyLaunchTransaction(input: LaunchVerificationInput) {
   }
 
   const { bondingCurve } = await online.fetchBuyState(mint, launcher);
+  if (!bondingCurve.creator.equals(treasury)) {
+    return { ok: false as const, reason: "Bonding-curve creator is not the GoFund treasury" };
+  }
+
   const quoteMint = bondingCurve.quoteMint;
   const expectedUsdc = new PublicKey(USDC_MINT);
   const isSolQuote =
@@ -91,38 +97,41 @@ export async function verifyLaunchTransaction(input: LaunchVerificationInput) {
     return { ok: false as const, reason: "On-chain quote mint is not SOL" };
   }
 
-  return { ok: true as const };
+  return { ok: true as const, creator: treasury.toBase58() };
 }
 
-export async function verifyLockedFeeShare(mintText: string) {
+export async function verifyDirectCreatorRouting(
+  mintText: string,
+  launcherWallet?: string,
+) {
   const conn = connection();
   const mint = new PublicKey(mintText);
-  const configAddress = feeSharingConfigPda(mint);
-  const account = await conn.getAccountInfo(configAddress, "confirmed");
+  const treasury = new PublicKey(treasuryAddress());
+  const online = new OnlinePumpSdk(conn);
+  const lookupUser = launcherWallet
+    ? new PublicKey(launcherWallet)
+    : treasury;
 
-  if (!account) return { ok: false as const, reason: "Sharing config not found" };
-
-  const config = PUMP_SDK.decodeSharingConfig(account);
-  const target = new PublicKey(treasuryAddress());
-  const shareholders = config.shareholders || [];
-  const locked = Boolean(config.adminRevoked);
-  const exact =
-    shareholders.length === 1 &&
-    shareholders[0].address.equals(target) &&
-    Number(shareholders[0].shareBps) === 10_000;
-
-  if (!locked) return { ok: false as const, reason: "Fee share is not finalized" };
-  if (!exact) {
+  try {
+    const { bondingCurve } = await online.fetchBuyState(mint, lookupUser);
+    if (!bondingCurve.creator.equals(treasury)) {
+      return {
+        ok: false as const,
+        reason: "Bonding-curve creator no longer matches GoFund treasury",
+      };
+    }
+    return {
+      ok: true as const,
+      creator: treasury.toBase58(),
+    };
+  } catch (error) {
     return {
       ok: false as const,
-      reason: "Fee share is not 100% GoFund treasury",
+      reason: error instanceof Error
+        ? error.message
+        : "Could not verify creator routing",
     };
   }
-
-  return {
-    ok: true as const,
-    configAddress: configAddress.toBase58(),
-  };
 }
 
 function feePayer() {
@@ -141,6 +150,8 @@ export async function prepareCreatorFeeDistribution(
   const mint = new PublicKey(mintText);
   const online = new OnlinePumpSdk(conn);
 
+  // Temporary compatibility path. The claims worker is replaced by the
+  // direct-creator collection/indexer before monetary production is enabled.
   const options =
     quoteAsset === "USDC"
       ? { quoteMint: new PublicKey(USDC_MINT), payer: payer.publicKey }

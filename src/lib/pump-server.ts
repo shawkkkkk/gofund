@@ -49,12 +49,12 @@ export async function verifyLaunchTransaction(input: LaunchVerificationInput) {
     return { ok: false as const, reason: "Launch transaction is missing or failed" };
   }
 
-  let event: ReturnType<typeof PUMP_SDK.decodeCreateEvent> | null = null;
+  let event: ReturnType<typeof PUMP_SDK.decodeCreateEventBc> | null = null;
   for (const log of transaction.meta.logMessages || []) {
     const match = /^Program data: (.+)$/.exec(log);
     if (!match) continue;
     try {
-      const decoded = PUMP_SDK.decodeCreateEvent(Buffer.from(match[1], "base64"));
+      const decoded = PUMP_SDK.decodeCreateEventBc(Buffer.from(match[1], "base64"));
       if (decoded.mint.equals(mint)) {
         event = decoded;
         break;

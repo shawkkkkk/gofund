@@ -181,11 +181,20 @@ async function recoverOpenCollection() {
   };
 }
 
-async function collect() {
+async function collect(asset: "SOL" | "USDC") {
   const recovery = await recoverOpenCollection();
   if (recovery.recovered) return recovery;
 
-  const prepared = await prepareCreatorFeeCollection();
+  const prepared = await prepareCreatorFeeCollection(asset);
+  if (!prepared) {
+    return {
+      recovered: false as const,
+      signature: null,
+      solAmountBaseUnits: 0n,
+      usdcAmountBaseUnits: 0n,
+      skipped: "no collectable " + asset + " fees",
+    };
+  }
 
   await query(
     `insert into collections(
@@ -252,13 +261,22 @@ export async function POST(request: Request) {
       });
     }
 
-    const result = await collect();
+    const results = [];
+    for (const asset of ["SOL", "USDC"] as const) {
+      const result = await collect(asset);
+      results.push({
+        asset,
+        signature: result.signature,
+        recovered: result.recovered,
+        solAmountBaseUnits: result.solAmountBaseUnits.toString(),
+        usdcAmountBaseUnits: result.usdcAmountBaseUnits.toString(),
+        ...("skipped" in result ? { skipped: result.skipped } : {}),
+      });
+    }
+
     return NextResponse.json({
       ok: true,
-      signature: result.signature,
-      recovered: result.recovered,
-      solAmountBaseUnits: result.solAmountBaseUnits.toString(),
-      usdcAmountBaseUnits: result.usdcAmountBaseUnits.toString(),
+      results,
     });
   } catch (e) {
     return NextResponse.json(

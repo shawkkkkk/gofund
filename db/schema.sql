@@ -49,8 +49,11 @@ create index if not exists claims_token_id_idx on claims(token_id);
 create table if not exists settlements (
   id uuid primary key default gen_random_uuid(),
   campaign_id uuid not null references campaigns(id),
+  source_asset text not null check (source_asset in ('SOL','USDC')),
+  source_amount_base_units numeric(40,0) not null check (source_amount_base_units > 0),
   amount_cents bigint not null check (amount_cents > 0),
   status text not null default 'QUEUED' check (status in ('QUEUED','PROCESSING','COMPLETED','FAILED','CANCELLED')),
+  conversion_reference text,
   donation_reference text,
   receipt_url text,
   note text,
@@ -60,6 +63,7 @@ create table if not exists settlements (
 
 create index if not exists settlements_campaign_id_idx on settlements(campaign_id);
 create index if not exists settlements_status_idx on settlements(status);
+create index if not exists settlements_campaign_asset_idx on settlements(campaign_id, source_asset);
 
 create table if not exists audit_log (
   id bigserial primary key,

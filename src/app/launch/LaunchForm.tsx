@@ -27,12 +27,25 @@ type WalletProvider = {
   signTransaction<T extends VersionedTransaction>(tx: T): Promise<T>;
 };
 
+type PendingLaunch = {
+  mint: string;
+  quoteAsset: "SOL" | "USDC";
+  launcherWallet?: string;
+  launchSignature?: string;
+  lockSignature?: string;
+};
+
+type LockCheck =
+  | { ok: true; configAddress: string; signature?: string | null }
+  | { ok: false; reason: string };
+
 declare global {
   interface Window { solana?: WalletProvider }
 }
 
 const rpc = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 const treasury = process.env.NEXT_PUBLIC_GOFUND_TREASURY || "";
+const PENDING_KEY = "gofund_pending_lock";
 
 export default function LaunchForm() {
   const [campaignUrl, setCampaignUrl] = useState("");
@@ -46,20 +59,28 @@ export default function LaunchForm() {
   const [status, setStatus] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [pendingMint, setPendingMint] = useState("");
-  const [pendingQuote, setPendingQuote] = useState<"SOL" | "USDC">("USDC");
+  const [pending, setPending] = useState<PendingLaunch | null>(null);
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("gofund_pending_lock");
+      const raw = localStorage.getItem(PENDING_KEY);
       if (!raw) return;
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(raw) as PendingLaunch;
       if (parsed?.mint) {
-        setPendingMint(parsed.mint);
-        setPendingQuote(parsed.quoteAsset === "SOL" ? "SOL" : "USDC");
+        const recovered: PendingLaunch = {
+          ...parsed,
+          quoteAsset: parsed.quoteAsset === "SOL" ? "SOL" : "USDC",
+        };
+        setPending(recovered);
       }
     } catch {}
   }, []);
+
+  function savePending(next: PendingLaunch | null) {
+    setPending(next);
+    if (next) localStorage.setItem(PENDING_KEY, JSON.stringify(next));
+    else localStorage.removeItem(PENDING_KEY);
+  }
 
   async function connect() {
     setError("");
@@ -112,50 +133,100 @@ export default function LaunchForm() {
     return signature;
   }
 
+  async function recordCreated(mint: string, signature: string) {
+    const res = await fetch("/api/launches/" + mint + "/created", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ signature }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || "GoFund could not record the create transaction");
+  }
+
+  async function verifyServerLock(mint: string, signature?: string): Promise<LockCheck> {
+    const res = await fetch("/api/launches/" + mint + "/locked", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(signature ? { signature } : {}),
+    });
+    const body = await res.json();
+    if (res.ok) return body as LockCheck;
+    if (res.status === 409 && body.reason) return { ok: false, reason: body.reason };
+    throw new Error(body.error || "Could not verify fee lock");
+  }
+
   async function lockFees(
     provider: WalletProvider,
     user: PublicKey,
-    mint: PublicKey,
-    quoteAsset: "SOL" | "USDC",
+    state: PendingLaunch,
+    knownCheck?: LockCheck,
   ) {
-    const shareIx = await PUMP_SDK.createFeeSharingConfig({ creator: user, mint, pool: null });
-    const configSig = await send(provider, user, [shareIx]);
-    setStatus((s) => [...s, "Fee-sharing config created: " + configSig.slice(0, 8) + "…"]);
+    const mint = new PublicKey(state.mint);
+    const firstCheck = knownCheck || await verifyServerLock(state.mint, state.lockSignature);
+
+    if (firstCheck.ok) {
+      if (state.launchSignature) await recordCreated(state.mint, state.launchSignature);
+      savePending(null);
+      setStatus((s) => [...s, "✓ GoFund verified the immutable 100% fee share on-chain"]);
+      return;
+    }
+
+    if (state.launcherWallet && state.launcherWallet !== user.toBase58()) {
+      throw new Error("Reconnect the wallet that created this token to finish locking its fees");
+    }
+
+    if (firstCheck.reason === "Sharing config not found") {
+      const shareIx = await PUMP_SDK.createFeeSharingConfig({
+        creator: user,
+        mint,
+        pool: null,
+      });
+      const configSig = await send(provider, user, [shareIx]);
+      setStatus((s) => [...s, "Fee-sharing config created: " + configSig.slice(0, 8) + "…"]);
+    } else if (firstCheck.reason !== "Fee share is not finalized") {
+      throw new Error(firstCheck.reason);
+    }
 
     const lockIx = await PUMP_SDK.updateFeeSharesV2({
       authority: user,
       mint,
       currentShareholders: [user],
       newShareholders: [{ address: new PublicKey(treasury), shareBps: 10_000 }],
-      quoteMint: quoteAsset === "USDC" ? new PublicKey(USDC_MINT) : NATIVE_MINT,
+      quoteMint: state.quoteAsset === "USDC" ? new PublicKey(USDC_MINT) : NATIVE_MINT,
       quoteTokenProgram: TOKEN_PROGRAM_ID,
     });
     const lockSig = await send(provider, user, [lockIx]);
+    const withLock = { ...state, lockSignature: lockSig };
+    savePending(withLock);
     setStatus((s) => [...s, "100% fee routing finalized: " + lockSig.slice(0, 8) + "…"]);
 
-    const lockRes = await fetch("/api/launches/" + mint.toBase58() + "/locked", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ signature: lockSig }),
-    });
-    const locked = await lockRes.json();
-    if (!lockRes.ok) throw new Error(locked.error || "On-chain fee verification failed");
+    const finalCheck = await verifyServerLock(state.mint, lockSig);
+    if (!finalCheck.ok) throw new Error(finalCheck.reason);
 
-    localStorage.removeItem("gofund_pending_lock");
-    setPendingMint("");
+    if (state.launchSignature) await recordCreated(state.mint, state.launchSignature);
+    savePending(null);
     setStatus((s) => [...s, "✓ GoFund verified the immutable 100% fee share on-chain"]);
   }
 
   async function retryLock() {
+    if (!pending) return;
     setError("");
     setBusy(true);
     try {
+      const check = await verifyServerLock(pending.mint, pending.lockSignature);
+      if (check.ok) {
+        if (pending.launchSignature) await recordCreated(pending.mint, pending.launchSignature);
+        savePending(null);
+        setStatus((s) => [...s, "✓ Existing fee lock recovered and verified on-chain"]);
+        return;
+      }
+
       const provider = window.solana;
       if (!provider) throw new Error("No compatible Solana browser wallet found");
       const user = provider.publicKey || await connect();
-      await lockFees(provider, user, new PublicKey(pendingMint), pendingQuote);
+      await lockFees(provider, user, pending, check);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Fee lock failed");
+      setError(e instanceof Error ? e.message : "Fee lock recovery failed");
     } finally {
       setBusy(false);
     }
@@ -207,20 +278,17 @@ export default function LaunchForm() {
       });
 
       const launchSig = await send(provider, user, [createIx], [mint]);
+      const recovery: PendingLaunch = {
+        mint: mint.publicKey.toBase58(),
+        quoteAsset: quote,
+        launcherWallet: user.toBase58(),
+        launchSignature: launchSig,
+      };
+      savePending(recovery);
       setStatus((s) => [...s, "Token created: " + launchSig.slice(0, 8) + "…"]);
 
-      const createdRes = await fetch("/api/launches/" + mint.publicKey.toBase58() + "/created", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ signature: launchSig }),
-      });
-      if (!createdRes.ok) throw new Error("Token exists, but GoFund could not record its create transaction");
-
-      const mintText = mint.publicKey.toBase58();
-      setPendingMint(mintText);
-      setPendingQuote(quote);
-      localStorage.setItem("gofund_pending_lock", JSON.stringify({ mint: mintText, quoteAsset: quote }));
-      await lockFees(provider, user, mint.publicKey, quote);
+      await recordCreated(recovery.mint, launchSig);
+      await lockFees(provider, user, recovery);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Launch failed");
     } finally {
@@ -258,7 +326,7 @@ export default function LaunchForm() {
         : <div className="status ok">Connected: {wallet.slice(0,5)}…{wallet.slice(-5)}</div>}
 
       <button disabled={busy || !preview} className="button green" style={{width:"100%",marginTop:12}}>{busy ? "Launching…" : "Launch & lock fees"}</button>
-      {pendingMint && <button type="button" disabled={busy} className="button outline" style={{width:"100%",marginTop:10}} onClick={retryLock}>Retry fee lock for {pendingMint.slice(0,6)}…</button>}
+      {pending && <button type="button" disabled={busy} className="button outline" style={{width:"100%",marginTop:10}} onClick={retryLock}>Recover launch {pending.mint.slice(0,6)}…</button>}
       {error && <div className="status err" style={{marginTop:14}}>{error}</div>}
       {!!status.length && <div className="status-list">{status.map((s,i) => <div className="status ok" key={i}>{s}</div>)}</div>}
     </form>
@@ -271,7 +339,7 @@ export default function LaunchForm() {
         <div className="step"><strong>Create</strong><div className="muted">Your wallet creates the Pump coin.</div></div>
         <div className="step"><strong>Lock</strong><div className="muted">A second transaction permanently sets the creator-fee recipient.</div></div>
         <div className="step"><strong>Verify</strong><div className="muted">The server reads the chain, not your browser&apos;s claim.</div></div>
-        <div className="step"><strong>Settle</strong><div className="muted">On-chain fees and completed GoFundMe donations remain separate ledger states.</div></div>
+        <div className="step"><strong>Recover</strong><div className="muted">If the browser closes mid-flow, GoFund checks chain state before asking you to sign again.</div></div>
       </div>
     </aside>
   </div>;

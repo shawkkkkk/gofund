@@ -40,7 +40,7 @@ export default async function ProofPage() {
     try {
       const [a, b] = await Promise.all([
         query<Row>(
-          "select cl.signature,cl.asset,cl.amount_base_units,cl.created_at::text,t.name,t.symbol,c.title from claims cl join tokens t on t.id=cl.token_id join campaigns c on c.id=t.campaign_id order by cl.created_at desc limit 100",
+          "select cl.signature,cl.asset,cl.amount_base_units,cl.created_at::text,t.name,t.symbol,c.title from claims cl join tokens t on t.id=cl.token_id join campaigns c on c.id=t.campaign_id where cl.status='CONFIRMED' and cl.amount_base_units is not null order by cl.created_at desc limit 100",
         ),
         query<Settlement>(
           "select s.id::text,s.source_asset,s.source_amount_base_units::text,s.amount_cents::text,s.status,s.conversion_reference,s.donation_reference,s.receipt_url,s.created_at::text,c.title from settlements s join campaigns c on c.id=s.campaign_id order by s.created_at desc limit 100",

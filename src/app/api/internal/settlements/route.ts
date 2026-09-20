@@ -55,12 +55,11 @@ export async function POST(request: Request) {
         }>(
           `select
              coalesce((
-               select sum(cl.amount_base_units)
-               from claims cl
-               join tokens t on t.id = cl.token_id
+               select sum(fe.amount_base_units)
+               from fee_events fe
+               join tokens t on t.id = fe.token_id
                where t.campaign_id = $1
-                 and cl.asset = $2
-                 and cl.status = 'CONFIRMED'
+                 and fe.asset = $2
              ), 0)::text as claimed,
              coalesce((
                select sum(s.source_amount_base_units)

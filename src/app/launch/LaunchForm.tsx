@@ -253,7 +253,7 @@ export default function LaunchForm() {
           name,
           symbol,
           description,
-          imageUrl: imageUrl || preview.imageUrl,
+          imageUrl: imageUrl || null,
           quoteAsset: quote,
           launcherWallet: user.toBase58(),
           mint: mint.publicKey.toBase58(),
@@ -300,7 +300,7 @@ export default function LaunchForm() {
         <label>1. GoFundMe campaign</label>
         <div className="inline">
           <input placeholder="https://www.gofundme.com/f/..." value={campaignUrl} onChange={(e) => setCampaignUrl(e.target.value)} />
-          <button type="button" className="button small outline" onClick={previewCampaign}>Preview</button>
+          <button type="button" className="button small outline" onClick={previewCampaign}>Use link</button>
         </div>
       </div>
 

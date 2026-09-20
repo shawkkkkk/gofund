@@ -28,9 +28,9 @@ export default async function CampaignPage({ params }:{ params:Promise<{id:strin
     ),
     query<AssetRow>(
       "with confirmed as (" +
-      " select cl.asset, coalesce(sum(cl.amount_base_units),0)::numeric as amount" +
-      " from claims cl join tokens t on t.id=cl.token_id" +
-      " where t.campaign_id=$1 and cl.status='CONFIRMED' and cl.amount_base_units is not null group by cl.asset" +
+      " select fe.asset, coalesce(sum(fe.amount_base_units),0)::numeric as amount" +
+      " from fee_events fe join tokens t on t.id=fe.token_id" +
+      " where t.campaign_id=$1 group by fe.asset" +
       "), reserved as (" +
       " select source_asset as asset, coalesce(sum(source_amount_base_units),0)::numeric as amount" +
       " from settlements where campaign_id=$1 and status in ('QUEUED','PROCESSING','COMPLETED')" +
@@ -72,8 +72,8 @@ export default async function CampaignPage({ params }:{ params:Promise<{id:strin
           return <article className="card" key={asset}>
             <div className="eyebrow">{asset} reconciliation</div>
             <h3 style={{fontSize:30,marginTop:8}}>{units(asset, owed.toString())} {asset}</h3>
-            <p className="muted">confirmed on-chain and not yet reserved for settlement</p>
-            <div className="token-line"><span>Confirmed</span><strong>{units(asset, confirmed.toString())}</strong></div>
+            <p className="muted">creator fees generated on-chain and not yet reserved for settlement</p>
+            <div className="token-line"><span>Generated</span><strong>{units(asset, confirmed.toString())}</strong></div>
             <div className="token-line"><span>Reserved/settled</span><strong>{units(asset, reserved.toString())}</strong></div>
           </article>;
         })}

@@ -18,7 +18,7 @@ Pump's current fee-sharing program makes the final reward distribution one-time 
 
 ## V1 flow
 
-1. Paste a GoFundMe URL and preview its public metadata.
+1. Paste a canonical GoFundMe URL. GoFund validates the URL format but does not scrape campaign content.
 2. Connect a Solana browser wallet.
 3. Generate a mint locally and create the coin through the official `@pump-fun/pump-sdk`.
 4. Create the Pump fee-sharing config and finalize it to 100% GoFund treasury.
@@ -51,11 +51,11 @@ See `.env.example`. The treasury public key must match in both public and server
 - Fund the separate worker fee payer with a small amount of SOL.
 - Configure `INTERNAL_API_SECRET` and schedule `POST /api/internal/claims`.
 - Establish an approved operational process for GoFundMe settlement before presenting completed payouts as donations.
-- Add sanctions/fraud screening, campaign opt-out handling, accounting controls, incident response, and counsel review before public monetary operation.
+- Complete sanctions/fraud screening, campaign organizer verification/opt-out operations, accounting controls, incident response, and legal review before public monetary operation.
 
 ## Why settlement is separate
 
-GoFundMe's public platform does not provide a general arbitrary-campaign crypto payout rail. GoFund therefore tracks:
+GoFund intentionally does not scrape GoFundMe or automate its checkout without an authorized integration. Settlements use GoFundMe-supported payment methods and are recorded separately. GoFund therefore tracks:
 
 `creator fees generated -> distributed to treasury -> owed to campaign -> completed GoFundMe donation`
 

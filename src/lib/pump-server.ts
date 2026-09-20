@@ -1,6 +1,7 @@
 import {
-  Keypair,
+  ComputeBudgetProgram,
   Connection,
+  Keypair,
   PublicKey,
   TransactionMessage,
   VersionedTransaction,
@@ -10,7 +11,7 @@ import { OnlinePumpSdk, PUMP_SDK } from "@pump-fun/pump-sdk";
 import bs58 from "bs58";
 import { rpcUrl, treasuryAddress, USDC_MINT } from "@/lib/config";
 
-export type PreparedDistribution = {
+export type PreparedCollection = {
   signature: string;
   serializedTx: string;
   blockhash: string;
@@ -120,16 +121,14 @@ export async function verifyDirectCreatorRouting(
         reason: "Bonding-curve creator no longer matches GoFund treasury",
       };
     }
-    return {
-      ok: true as const,
-      creator: treasury.toBase58(),
-    };
+    return { ok: true as const, creator: treasury.toBase58() };
   } catch (error) {
     return {
       ok: false as const,
-      reason: error instanceof Error
-        ? error.message
-        : "Could not verify creator routing",
+      reason:
+        error instanceof Error
+          ? error.message
+          : "Could not verify creator routing",
     };
   }
 }
@@ -141,24 +140,16 @@ function feePayer() {
   return Keypair.fromSecretKey(Uint8Array.from(parsed));
 }
 
-export async function prepareCreatorFeeDistribution(
-  mintText: string,
-  quoteAsset: "SOL" | "USDC",
-): Promise<PreparedDistribution | null> {
+export async function prepareCreatorFeeCollection(): Promise<PreparedCollection> {
   const conn = connection();
   const payer = feePayer();
-  const mint = new PublicKey(mintText);
+  const creator = new PublicKey(treasuryAddress());
   const online = new OnlinePumpSdk(conn);
 
-  // Temporary compatibility path. The claims worker is replaced by the
-  // direct-creator collection/indexer before monetary production is enabled.
-  const options =
-    quoteAsset === "USDC"
-      ? { quoteMint: new PublicKey(USDC_MINT), payer: payer.publicKey }
-      : undefined;
-
-  const built = await online.buildDistributeCreatorFeesInstructions(mint, options);
-  if (!built.instructions.length) return null;
+  const sdkInstructions = await online.collectCoinCreatorFeeInstructions(
+    creator,
+    payer.publicKey,
+  );
 
   const { blockhash, lastValidBlockHeight } =
     await conn.getLatestBlockhash("confirmed");
@@ -166,7 +157,10 @@ export async function prepareCreatorFeeDistribution(
   const message = new TransactionMessage({
     payerKey: payer.publicKey,
     recentBlockhash: blockhash,
-    instructions: built.instructions,
+    instructions: [
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }),
+      ...sdkInstructions,
+    ],
   }).compileToV0Message();
 
   const tx = new VersionedTransaction(message);
@@ -180,8 +174,8 @@ export async function prepareCreatorFeeDistribution(
   };
 }
 
-export async function broadcastPreparedDistribution(
-  prepared: PreparedDistribution,
+export async function broadcastPreparedCollection(
+  prepared: PreparedCollection,
 ) {
   const conn = connection();
   const returned = await conn.sendRawTransaction(
@@ -192,12 +186,11 @@ export async function broadcastPreparedDistribution(
   if (returned !== prepared.signature) {
     throw new Error("RPC returned an unexpected transaction signature");
   }
-
   return returned;
 }
 
-export async function confirmPreparedDistribution(
-  prepared: PreparedDistribution,
+export async function confirmPreparedCollection(
+  prepared: PreparedCollection,
 ) {
   const conn = connection();
   const confirmation = await conn.confirmTransaction(
@@ -211,87 +204,91 @@ export async function confirmPreparedDistribution(
 
   if (confirmation.value.err) {
     throw new Error(
-      "Distribution transaction failed: " +
+      "Creator-fee collection failed: " +
         JSON.stringify(confirmation.value.err),
     );
   }
 }
 
-async function distributionAmountFromReceipt(
+export async function readCollectionResult(
   signature: string,
-  quoteAsset: "SOL" | "USDC",
+  retries = 0,
 ) {
   const conn = connection();
-  const receipt = await conn.getTransaction(signature, {
-    commitment: "confirmed",
-    maxSupportedTransactionVersion: 0,
-  });
 
-  if (!receipt?.meta) return { found: false as const };
-  if (receipt.meta.err) {
-    return {
-      found: true as const,
-      ok: false as const,
-      error: JSON.stringify(receipt.meta.err),
-    };
-  }
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const receipt = await conn.getTransaction(signature, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    });
 
-  const treasury = new PublicKey(treasuryAddress());
-  const keys = receipt.transaction.message.staticAccountKeys;
-  const target =
-    quoteAsset === "SOL"
-      ? treasury
-      : await getAssociatedTokenAddress(new PublicKey(USDC_MINT), treasury);
+    if (!receipt?.meta) {
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        continue;
+      }
+      return { found: false as const };
+    }
 
-  const accountIndex = keys.findIndex((key) => key.equals(target));
-  if (accountIndex < 0) {
-    throw new Error(
-      "GoFund treasury destination was not present in distribution transaction",
+    if (receipt.meta.err) {
+      return {
+        found: true as const,
+        ok: false as const,
+        error: JSON.stringify(receipt.meta.err),
+      };
+    }
+
+    const treasury = new PublicKey(treasuryAddress());
+    const treasuryUsdcAta = await getAssociatedTokenAddress(
+      new PublicKey(USDC_MINT),
+      treasury,
     );
-  }
+    const keys = receipt.transaction.message.staticAccountKeys;
 
-  if (quoteAsset === "SOL") {
-    const before = BigInt(Math.trunc(receipt.meta.preBalances[accountIndex] || 0));
-    const after = BigInt(Math.trunc(receipt.meta.postBalances[accountIndex] || 0));
+    const treasuryIndex = keys.findIndex((key) => key.equals(treasury));
+    const usdcIndex = keys.findIndex((key) => key.equals(treasuryUsdcAta));
+
+    let solAmountBaseUnits = 0n;
+    if (treasuryIndex >= 0) {
+      const before = BigInt(
+        Math.trunc(receipt.meta.preBalances[treasuryIndex] || 0),
+      );
+      const after = BigInt(
+        Math.trunc(receipt.meta.postBalances[treasuryIndex] || 0),
+      );
+      solAmountBaseUnits = after > before ? after - before : 0n;
+    }
+
+    const tokenAmount = (
+      balances: typeof receipt.meta.preTokenBalances,
+      accountIndex: number,
+    ) => {
+      if (accountIndex < 0) return 0n;
+      const entry = balances?.find(
+        (balance) =>
+          balance.accountIndex === accountIndex &&
+          balance.mint === USDC_MINT,
+      );
+      return BigInt(entry?.uiTokenAmount.amount || "0");
+    };
+
+    const beforeUsdc = tokenAmount(
+      receipt.meta.preTokenBalances,
+      usdcIndex,
+    );
+    const afterUsdc = tokenAmount(
+      receipt.meta.postTokenBalances,
+      usdcIndex,
+    );
+    const usdcAmountBaseUnits =
+      afterUsdc > beforeUsdc ? afterUsdc - beforeUsdc : 0n;
+
     return {
       found: true as const,
       ok: true as const,
-      amountBaseUnits: after > before ? after - before : 0n,
+      solAmountBaseUnits,
+      usdcAmountBaseUnits,
     };
-  }
-
-  const tokenAmount = (
-    balances: typeof receipt.meta.preTokenBalances,
-  ) => {
-    const entry = balances?.find(
-      (balance) =>
-        balance.accountIndex === accountIndex &&
-        balance.mint === USDC_MINT,
-    );
-    return BigInt(entry?.uiTokenAmount.amount || "0");
-  };
-
-  const before = tokenAmount(receipt.meta.preTokenBalances);
-  const after = tokenAmount(receipt.meta.postTokenBalances);
-
-  return {
-    found: true as const,
-    ok: true as const,
-    amountBaseUnits: after > before ? after - before : 0n,
-  };
-}
-
-export async function readDistributionResult(
-  signature: string,
-  quoteAsset: "SOL" | "USDC",
-  retries = 0,
-) {
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    const result = await distributionAmountFromReceipt(signature, quoteAsset);
-    if (result.found) return result;
-    if (attempt < retries) {
-      await new Promise((resolve) => setTimeout(resolve, 400));
-    }
   }
 
   return { found: false as const };

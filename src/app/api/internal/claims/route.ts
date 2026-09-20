@@ -6,7 +6,7 @@ import {
   currentBlockHeight,
   prepareCreatorFeeDistribution,
   readDistributionResult,
-  verifyLockedFeeShare,
+  verifyDirectCreatorRouting,
   type PreparedDistribution,
 } from "@/lib/pump-server";
 
@@ -189,7 +189,7 @@ async function recoverOpenAttempt(token: TokenRow) {
 }
 
 async function processToken(token: TokenRow) {
-  const verified = await verifyLockedFeeShare(token.mint);
+  const verified = await verifyDirectCreatorRouting(token.mint);
   if (!verified.ok) throw new Error(verified.reason);
 
   const recovery = await recoverOpenAttempt(token);

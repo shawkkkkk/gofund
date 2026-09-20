@@ -30,7 +30,7 @@ export default async function CampaignPage({ params }:{ params:Promise<{id:strin
       "with confirmed as (" +
       " select cl.asset, coalesce(sum(cl.amount_base_units),0)::numeric as amount" +
       " from claims cl join tokens t on t.id=cl.token_id" +
-      " where t.campaign_id=$1 and cl.status='CONFIRMED' group by cl.asset" +
+      " where t.campaign_id=$1 and cl.status='CONFIRMED' and cl.amount_base_units is not null group by cl.asset" +
       "), reserved as (" +
       " select source_asset as asset, coalesce(sum(source_amount_base_units),0)::numeric as amount" +
       " from settlements where campaign_id=$1 and status in ('QUEUED','PROCESSING','COMPLETED')" +
@@ -80,7 +80,7 @@ export default async function CampaignPage({ params }:{ params:Promise<{id:strin
         <article className="card">
           <div className="eyebrow">Supporting markets</div>
           <h3 style={{fontSize:30,marginTop:8}}>{tokenResult.rowCount || 0}</h3>
-          <p className="muted">tokens with a verified permanent 100% GoFund fee share</p>
+          <p className="muted">tokens whose GoFund creator routing has been verified on-chain</p>
         </article>
       </div>
     </section>
@@ -92,9 +92,9 @@ export default async function CampaignPage({ params }:{ params:Promise<{id:strin
           <article className="card" key={token.mint}>
             <div className="eyebrow">{token.quote_asset} pair</div>
             <h3 style={{fontSize:26,marginTop:8}}>{token.name} <span className="muted">{"$"}{token.symbol}</span></h3>
-            <div className="token-line"><code>{token.mint.slice(0,8)}…{token.mint.slice(-6)}</code><span className="badge locked">LOCKED</span></div>
+            <div className="token-line"><code>{token.mint.slice(0,8)}…{token.mint.slice(-6)}</code><span className="badge locked">VERIFIED</span></div>
           </article>
-        ) : <div className="card"><p>No locked tokens yet.</p></div>}
+        ) : <div className="card"><p>No verified tokens yet.</p></div>}
       </div>
     </section>
 

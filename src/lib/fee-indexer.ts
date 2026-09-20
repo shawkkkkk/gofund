@@ -122,8 +122,8 @@ function decodePumpTrade(data: Buffer) {
   return (decoder as (buffer: Buffer) => unknown).call(PUMP_SDK, data);
 }
 
-function decodeAmmEvent(dataBase64: string) {
-  const program = getPumpAmmProgram();
+function decodeAmmEvent(dataBase64: string, conn: Connection) {
+  const program = getPumpAmmProgram(conn);
   return program.coder.events.decode(dataBase64);
 }
 
@@ -220,7 +220,7 @@ async function processAmmTransaction(
     if (!match) continue;
 
     try {
-      const decoded = decodeAmmEvent(match[1]);
+      const decoded = decodeAmmEvent(match[1], connection());
       if (!decoded) continue;
       const name = String(decoded.name || "").toLowerCase();
       if (name !== "buyevent" && name !== "sellevent") continue;

@@ -6,7 +6,7 @@ import {
   TransactionMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
-import { getAssociatedTokenAddress } from "@solana/spl-token";
+import { getAssociatedTokenAddress, NATIVE_MINT, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { OnlinePumpSdk, PUMP_SDK } from "@pump-fun/pump-sdk";
 import bs58 from "bs58";
 import { rpcUrl, treasuryAddress, USDC_MINT } from "@/lib/config";
@@ -140,16 +140,37 @@ function feePayer() {
   return Keypair.fromSecretKey(Uint8Array.from(parsed));
 }
 
-export async function prepareCreatorFeeCollection(): Promise<PreparedCollection> {
+export async function prepareCreatorFeeCollection(
+  asset: "SOL" | "USDC",
+): Promise<PreparedCollection | null> {
   const conn = connection();
   const payer = feePayer();
   const creator = new PublicKey(treasuryAddress());
   const online = new OnlinePumpSdk(conn);
 
-  const sdkInstructions = await online.collectCoinCreatorFeeInstructions(
-    creator,
-    payer.publicKey,
-  );
+  const quoteMint =
+    asset === "SOL" ? NATIVE_MINT : new PublicKey(USDC_MINT);
+
+  const balances = await online.getCreatorVaultQuoteBalances(creator);
+  const waiting = balances.get(quoteMint.toBase58());
+  if (!waiting || BigInt(waiting.toString()) <= 0n) {
+    return null;
+  }
+
+  const sdkInstructions =
+    asset === "SOL"
+      ? await online.collectCoinCreatorFeeInstructions(
+          creator,
+          payer.publicKey,
+        )
+      : await online.collectCoinCreatorFeeV2Instructions(
+          creator,
+          quoteMint,
+          TOKEN_PROGRAM_ID,
+          payer.publicKey,
+        );
+
+  if (!sdkInstructions.length) return null;
 
   const { blockhash, lastValidBlockHeight } =
     await conn.getLatestBlockhash("confirmed");

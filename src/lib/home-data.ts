@@ -15,7 +15,7 @@ export async function getHomeData(): Promise<HomeData> {
     const [counts, claims, recent] = await Promise.all([
       query<{ tokens: string; campaigns: string }>(`select (select count(*) from tokens where fee_status='LOCKED')::text as tokens, (select count(*) from campaigns)::text as campaigns`),
       query<{ asset: string; amount: string }>(`select asset, coalesce(sum(amount_base_units),0)::text as amount from claims where status='CONFIRMED' group by asset`),
-      query<{ mint: string; name: string; symbol: string; fee_status: string; quote_asset: string; title: string; campaign_id: string }>(`select t.mint,t.name,t.symbol,t.fee_status,t.quote_asset,c.title,c.id::text as campaign_id from tokens t join campaigns c on c.id=t.campaign_id order by t.created_at desc limit 6`),
+      query<{ mint: string; name: string; symbol: string; fee_status: string; quote_asset: string; title: string; campaign_id: string }>(`select t.mint,t.name,t.symbol,t.fee_status,t.quote_asset,c.title,c.id::text as campaign_id from tokens t join campaigns c on c.id=t.campaign_id where t.fee_status='LOCKED' and c.verification_status<>'OPTED_OUT' order by t.locked_at desc limit 6`),
     ]);
     const byAsset = Object.fromEntries(claims.rows.map((r) => [r.asset, r.amount]));
     return {

@@ -1,26 +1,23 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { query } from "@/lib/db";
-import { verifyLockedFeeShare } from "@/lib/pump-server";
-
-const schema = z.object({ signature: z.string().min(20).optional() });
+import { verifyDirectCreatorRouting } from "@/lib/pump-server";
 
 export async function PATCH(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ mint: string }> },
 ) {
   try {
     const { mint } = await params;
-    const body = schema.parse(await request.json().catch(() => ({})));
-
     const state = await query<{
+      launcher_wallet: string;
       fee_status: string;
       campaign_status: "UNVERIFIED" | "VERIFIED" | "OPTED_OUT";
     }>(
-      `select t.fee_status,c.verification_status as campaign_status
+      `select t.launcher_wallet,t.fee_status,
+              c.verification_status as campaign_status
        from tokens t
-       join campaigns c on c.id = t.campaign_id
-       where t.mint = $1`,
+       join campaigns c on c.id=t.campaign_id
+       where t.mint=$1`,
       [mint],
     );
 
@@ -31,14 +28,11 @@ export async function PATCH(
         { status: 409 },
       );
     }
-    if (!["CREATED", "LOCKED"].includes(state.rows[0].fee_status)) {
-      return NextResponse.json(
-        { error: "Pump creation must be verified before fee locking" },
-        { status: 409 },
-      );
-    }
 
-    const verified = await verifyLockedFeeShare(mint);
+    const verified = await verifyDirectCreatorRouting(
+      mint,
+      state.rows[0].launcher_wallet,
+    );
     if (!verified.ok) {
       return NextResponse.json(
         { ok: false, reason: verified.reason },
@@ -46,35 +40,18 @@ export async function PATCH(
       );
     }
 
-    const result = await query<{ id: string; fee_lock_signature: string | null }>(
-      `update tokens
-       set fee_lock_signature = coalesce($1, fee_lock_signature),
-           fee_status = 'LOCKED',
-           locked_at = coalesce(locked_at, now())
-       where mint = $2
-         and fee_status in ('CREATED','LOCKED')
-       returning id::text, fee_lock_signature`,
-      [body.signature || null, mint],
-    );
-
-    if (!result.rowCount) throw new Error("Verified launch record not found");
-
     await query(
-      `insert into audit_log(event_type,subject_type,subject_id,payload)
-       values('FEE_LOCK_VERIFIED','TOKEN',$1,$2::jsonb)`,
-      [
-        mint,
-        JSON.stringify({
-          signature: body.signature || result.rows[0].fee_lock_signature,
-          configAddress: verified.configAddress,
-        }),
-      ],
+      `update tokens
+       set fee_status='LOCKED',
+           locked_at=coalesce(locked_at,now())
+       where mint=$1`,
+      [mint],
     );
 
     return NextResponse.json({
       ok: true,
-      configAddress: verified.configAddress,
-      signature: body.signature || result.rows[0].fee_lock_signature,
+      creator: verified.creator,
+      model: "DIRECT_CREATOR_FROM_GENESIS",
     });
   } catch (e) {
     return NextResponse.json(

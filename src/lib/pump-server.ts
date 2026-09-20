@@ -11,7 +11,15 @@ import {
   PUMP_SDK,
   feeSharingConfigPda,
 } from "@pump-fun/pump-sdk";
+import bs58 from "bs58";
 import { rpcUrl, treasuryAddress, USDC_MINT } from "@/lib/config";
+
+export type PreparedDistribution = {
+  signature: string;
+  serializedTx: string;
+  blockhash: string;
+  lastValidBlockHeight: number;
+};
 
 function connection() {
   return new Connection(rpcUrl(), "confirmed");
@@ -55,39 +63,121 @@ function feePayer() {
   return Keypair.fromSecretKey(Uint8Array.from(parsed));
 }
 
-async function confirmedTransaction(conn: Connection, signature: string) {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const receipt = await conn.getTransaction(signature, {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
-    });
-    if (receipt?.meta) return receipt;
-    await new Promise((resolve) => setTimeout(resolve, 400));
-  }
-  throw new Error("Confirmed distribution transaction was not available from RPC");
+export async function prepareCreatorFeeDistribution(
+  mintText: string,
+  quoteAsset: "SOL" | "USDC",
+): Promise<PreparedDistribution | null> {
+  const conn = connection();
+  const payer = feePayer();
+  const mint = new PublicKey(mintText);
+  const online = new OnlinePumpSdk(conn);
+
+  const options =
+    quoteAsset === "USDC"
+      ? { quoteMint: new PublicKey(USDC_MINT), payer: payer.publicKey }
+      : undefined;
+
+  const built = await online.buildDistributeCreatorFeesInstructions(mint, options);
+  if (!built.instructions.length) return null;
+
+  const { blockhash, lastValidBlockHeight } =
+    await conn.getLatestBlockhash("confirmed");
+
+  const message = new TransactionMessage({
+    payerKey: payer.publicKey,
+    recentBlockhash: blockhash,
+    instructions: built.instructions,
+  }).compileToV0Message();
+
+  const tx = new VersionedTransaction(message);
+  tx.sign([payer]);
+
+  return {
+    signature: bs58.encode(tx.signatures[0]),
+    serializedTx: Buffer.from(tx.serialize()).toString("base64"),
+    blockhash,
+    lastValidBlockHeight,
+  };
 }
 
-async function distributedAmountFromReceipt(
-  conn: Connection,
+export async function broadcastPreparedDistribution(
+  prepared: PreparedDistribution,
+) {
+  const conn = connection();
+  const returned = await conn.sendRawTransaction(
+    Buffer.from(prepared.serializedTx, "base64"),
+    { maxRetries: 3, skipPreflight: false },
+  );
+
+  if (returned !== prepared.signature) {
+    throw new Error("RPC returned an unexpected transaction signature");
+  }
+
+  return returned;
+}
+
+export async function confirmPreparedDistribution(
+  prepared: PreparedDistribution,
+) {
+  const conn = connection();
+  const confirmation = await conn.confirmTransaction(
+    {
+      signature: prepared.signature,
+      blockhash: prepared.blockhash,
+      lastValidBlockHeight: prepared.lastValidBlockHeight,
+    },
+    "confirmed",
+  );
+
+  if (confirmation.value.err) {
+    throw new Error(
+      "Distribution transaction failed: " +
+        JSON.stringify(confirmation.value.err),
+    );
+  }
+}
+
+async function distributionAmountFromReceipt(
   signature: string,
-  treasury: PublicKey,
   quoteAsset: "SOL" | "USDC",
 ) {
-  const receipt = await confirmedTransaction(conn, signature);
+  const conn = connection();
+  const receipt = await conn.getTransaction(signature, {
+    commitment: "confirmed",
+    maxSupportedTransactionVersion: 0,
+  });
+
+  if (!receipt?.meta) return { found: false as const };
+  if (receipt.meta.err) {
+    return {
+      found: true as const,
+      ok: false as const,
+      error: JSON.stringify(receipt.meta.err),
+    };
+  }
+
+  const treasury = new PublicKey(treasuryAddress());
   const keys = receipt.transaction.message.staticAccountKeys;
-  const target = quoteAsset === "SOL"
-    ? treasury
-    : await getAssociatedTokenAddress(new PublicKey(USDC_MINT), treasury);
+  const target =
+    quoteAsset === "SOL"
+      ? treasury
+      : await getAssociatedTokenAddress(new PublicKey(USDC_MINT), treasury);
 
   const accountIndex = keys.findIndex((key) => key.equals(target));
   if (accountIndex < 0) {
-    throw new Error("GoFund treasury destination was not present in distribution transaction");
+    throw new Error(
+      "GoFund treasury destination was not present in distribution transaction",
+    );
   }
 
   if (quoteAsset === "SOL") {
     const before = BigInt(Math.trunc(receipt.meta.preBalances[accountIndex] || 0));
     const after = BigInt(Math.trunc(receipt.meta.postBalances[accountIndex] || 0));
-    return after > before ? after - before : 0n;
+    return {
+      found: true as const,
+      ok: true as const,
+      amountBaseUnits: after > before ? after - before : 0n,
+    };
   }
 
   const tokenAmount = (
@@ -103,56 +193,30 @@ async function distributedAmountFromReceipt(
 
   const before = tokenAmount(receipt.meta.preTokenBalances);
   const after = tokenAmount(receipt.meta.postTokenBalances);
-  return after > before ? after - before : 0n;
+
+  return {
+    found: true as const,
+    ok: true as const,
+    amountBaseUnits: after > before ? after - before : 0n,
+  };
 }
 
-export async function distributeCreatorFees(
-  mintText: string,
+export async function readDistributionResult(
+  signature: string,
   quoteAsset: "SOL" | "USDC",
+  retries = 0,
 ) {
-  const conn = connection();
-  const payer = feePayer();
-  const treasury = new PublicKey(treasuryAddress());
-  const mint = new PublicKey(mintText);
-  const online = new OnlinePumpSdk(conn);
-
-  const options =
-    quoteAsset === "USDC"
-      ? { quoteMint: new PublicKey(USDC_MINT), payer: payer.publicKey }
-      : undefined;
-
-  const built = await online.buildDistributeCreatorFeesInstructions(mint, options);
-  if (!built.instructions.length) {
-    return { signature: null, amountBaseUnits: 0n };
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const result = await distributionAmountFromReceipt(signature, quoteAsset);
+    if (result.found) return result;
+    if (attempt < retries) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
   }
 
-  const { blockhash, lastValidBlockHeight } =
-    await conn.getLatestBlockhash("confirmed");
-  const message = new TransactionMessage({
-    payerKey: payer.publicKey,
-    recentBlockhash: blockhash,
-    instructions: built.instructions,
-  }).compileToV0Message();
+  return { found: false as const };
+}
 
-  const tx = new VersionedTransaction(message);
-  tx.sign([payer]);
-
-  const signature = await conn.sendTransaction(tx, {
-    maxRetries: 3,
-    skipPreflight: false,
-  });
-
-  await conn.confirmTransaction(
-    { signature, blockhash, lastValidBlockHeight },
-    "confirmed",
-  );
-
-  const amountBaseUnits = await distributedAmountFromReceipt(
-    conn,
-    signature,
-    treasury,
-    quoteAsset,
-  );
-
-  return { signature, amountBaseUnits };
+export async function currentBlockHeight() {
+  return connection().getBlockHeight("confirmed");
 }

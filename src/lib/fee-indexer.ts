@@ -184,7 +184,7 @@ async function processPumpTransaction(
     try {
       const decoded = decodePumpTrade(Buffer.from(match[1], "base64"));
       if (!decoded || typeof decoded !== "object") continue;
-      const event = decoded as Record<string, unknown>;
+      const event = decoded as unknown as Record<string, unknown>;
 
       const mint = publicKey(field(event, "mint", "mint"));
       const creator = publicKey(field(event, "creator", "creator"));

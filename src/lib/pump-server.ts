@@ -25,6 +25,59 @@ function connection() {
   return new Connection(rpcUrl(), "confirmed");
 }
 
+export type LaunchVerificationInput = {
+  signature: string;
+  mint: string;
+  launcherWallet: string;
+  name: string;
+  symbol: string;
+  metadataUri: string;
+  quoteAsset: "SOL" | "USDC";
+};
+
+export async function verifyLaunchTransaction(input: LaunchVerificationInput) {
+  const conn = connection();
+  const mint = new PublicKey(input.mint);
+  const launcher = new PublicKey(input.launcherWallet);
+  const online = new OnlinePumpSdk(conn);
+
+  const events = await online.parseTransactionEvents(input.signature, "confirmed");
+  const create = events.find(
+    (event) => event.type === "create" && event.data.mint.equals(mint),
+  );
+
+  if (!create || create.type !== "create") {
+    return { ok: false as const, reason: "Confirmed Pump create event not found" };
+  }
+
+  const event = create.data;
+  if (!event.user.equals(launcher) || !event.creator.equals(launcher)) {
+    return { ok: false as const, reason: "Pump creator does not match launch wallet" };
+  }
+  if (event.name !== input.name || event.symbol !== input.symbol) {
+    return { ok: false as const, reason: "On-chain token identity does not match draft" };
+  }
+  if (event.uri !== input.metadataUri) {
+    return { ok: false as const, reason: "On-chain metadata URI does not match GoFund draft" };
+  }
+
+  const { bondingCurve } = await online.fetchBuyState(mint, launcher);
+  const quoteMint = bondingCurve.quoteMint;
+  const expectedUsdc = new PublicKey(USDC_MINT);
+  const isSolQuote =
+    quoteMint.equals(PublicKey.default) ||
+    quoteMint.toBase58() === "So11111111111111111111111111111111111111112";
+
+  if (input.quoteAsset === "USDC" && !quoteMint.equals(expectedUsdc)) {
+    return { ok: false as const, reason: "On-chain quote mint is not USDC" };
+  }
+  if (input.quoteAsset === "SOL" && !isSolQuote) {
+    return { ok: false as const, reason: "On-chain quote mint is not SOL" };
+  }
+
+  return { ok: true as const };
+}
+
 export async function verifyLockedFeeShare(mintText: string) {
   const conn = connection();
   const mint = new PublicKey(mintText);

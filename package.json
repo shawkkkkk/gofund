@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit",
-    "check:atomic-launch": "node scripts/check-atomic-launch.cjs"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@pump-fun/pump-sdk": "2.0.0",

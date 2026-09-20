@@ -2,31 +2,33 @@
 
 **Every trade gives.**
 
-GoFund is a fundraising launchpad for Pump tokens. A launcher selects a public GoFundMe campaign, launches a coin, and permanently locks **100% of that coin's Pump creator-fee share** to the GoFund treasury. GoFund keeps a per-token/per-campaign ledger, permissionlessly distributes creator fees on-chain, and separately records completed GoFundMe donations.
+GoFund is a fundraising launchpad for Pump tokens. A launcher selects a public GoFundMe campaign, creates a coin, and the Pump coin is created with the **GoFund treasury as its creator-fee recipient from genesis**. The launcher's wallet pays for the token creation but is never the creator-fee destination.
 
 > GoFund is independent and is not affiliated with, endorsed by, or operated by GoFundMe or Pump.fun.
 
 ## Core invariant
 
-A token is never shown as **Locked** until GoFund verifies on-chain that its Pump fee-sharing config:
+A token is never shown as active until GoFund independently verifies on-chain that:
 
-1. is finalized / admin-revoked;
-2. has exactly one shareholder;
-3. assigns 10,000 bps (100%) to `GOFUND_TREASURY`.
+1. the submitted transaction contains the expected Pump create event;
+2. the transaction payer is the launcher's wallet;
+3. the mint, name, ticker, metadata URI, and quote asset match the GoFund draft;
+4. the Pump creator in the create event is the configured GoFund treasury;
+5. the bonding-curve creator read from chain is also the configured GoFund treasury.
 
-Pump's current fee-sharing program makes the final reward distribution one-time and immutable. GoFund uses that property as the source of truth instead of trusting a database flag.
+Pump's current `create_v2` model makes the `creator` argument the creator-fee recipient for a normal SOL/USDC coin. GoFund sets that address at creation instead of asking the launcher to redirect fees afterward.
 
 ## V1 flow
 
 1. Paste a canonical GoFundMe URL. GoFund validates the URL format but does not scrape campaign content.
 2. Connect a Solana browser wallet.
-3. Generate a mint locally and create the coin through the official `@pump-fun/pump-sdk`.
-4. Create the Pump fee-sharing config and finalize it to 100% GoFund treasury.
-5. GoFund verifies the config on-chain before registering the coin as locked.
-6. A worker permissionlessly distributes accrued creator fees to the treasury and records each transaction.
-7. GoFund settles campaign balances through GoFundMe-supported payment methods and records the completed donation separately.
+3. Enter a community-supplied fundraiser label, token name, ticker, image URL, description, and SOL/USDC pair.
+4. GoFund drafts a Pump `create_v2` transaction whose `user` is the launcher and whose `creator` is the GoFund treasury.
+5. The wallet signs one creation transaction.
+6. GoFund parses the confirmed Pump create event and reads the bonding curve before marking the launch active.
+7. On-chain fee events are reconciled to the named fundraiser; GoFundMe settlements are recorded as a separate state and are never mislabeled as on-chain donations.
 
-The crypto claim and the GoFundMe donation are intentionally distinct states. The UI must never call fees “donated” until the GoFundMe-side settlement is completed.
+The crypto fee record and the GoFundMe donation are intentionally distinct states. The UI must never call funds “donated” until the GoFundMe-side settlement is completed.
 
 ## Setup
 
@@ -37,26 +39,32 @@ psql "$DATABASE_URL" -f db/schema.sql
 npm run dev
 ```
 
-Set a real Solana RPC before production. Public mainnet RPC is only a development fallback.
+Use a production-grade Solana RPC before monetary launch. The public mainnet RPC is only a development fallback.
 
 ## Required environment variables
 
-See `.env.example`. The treasury public key must match in both public and server env. Keep the treasury private key offline / under controlled custody; the fee-distribution worker does **not** need it because Pump fee distribution is permissionless. `FEE_PAYER_SECRET_KEY` should be a separate low-balance gas wallet.
+See `.env.example`.
 
-## Production checklist
+- `GOFUND_TREASURY` and `NEXT_PUBLIC_GOFUND_TREASURY` must be the same public key.
+- `DATABASE_URL` points to PostgreSQL.
+- `INTERNAL_API_SECRET` protects operator/worker routes.
+- `FEE_PAYER_SECRET_KEY` is a separate low-balance automation signer when a permissionless crank transaction needs gas. It must not be the treasury key.
 
-- Replace the development RPC endpoint with a paid, rate-limited provider.
-- Put PostgreSQL behind TLS and run `db/schema.sql`.
-- Configure `NEXT_PUBLIC_GOFUND_TREASURY` and `GOFUND_TREASURY` to the same address.
-- Fund the separate worker fee payer with a small amount of SOL.
-- Configure `INTERNAL_API_SECRET` and schedule `POST /api/internal/claims`.
-- Establish an approved operational process for GoFundMe settlement before presenting completed payouts as donations.
-- Complete sanctions/fraud screening, campaign organizer verification/opt-out operations, accounting controls, incident response, and legal review before public monetary operation.
+## Production gates
+
+- Production RPC configured and rate limits understood.
+- PostgreSQL initialized with `db/schema.sql`.
+- Treasury public key configured identically on client and server.
+- Internal worker/admin endpoints protected.
+- Fee accounting/indexing reconciles to on-chain events before settlement.
+- An approved operational process exists for GoFundMe settlement before completed payouts are shown as donations.
+- Organizer verification and opt-out handling are operational.
+- Fraud/sanctions screening, accounting controls, incident response, privacy/terms disclosures, and legal review are complete before public monetary operation.
 
 ## Why settlement is separate
 
-GoFund intentionally does not scrape GoFundMe or automate its checkout without an authorized integration. Settlements use GoFundMe-supported payment methods and are recorded separately. GoFund therefore tracks:
+GoFund intentionally does not scrape GoFundMe or automate its checkout without an authorized integration. The accounting model is:
 
-`creator fees generated -> distributed to treasury -> owed to campaign -> completed GoFundMe donation`
+`creator fees generated -> GoFund-controlled fee destination -> campaign obligation -> completed GoFundMe donation`
 
 That reconciliation is a product feature, not a hidden operational detail.

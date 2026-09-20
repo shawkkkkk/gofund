@@ -39,12 +39,18 @@ create table if not exists claims (
   token_id uuid not null references tokens(id),
   signature text not null unique,
   asset text not null check (asset in ('SOL','USDC')),
-  amount_base_units numeric(40,0) not null check (amount_base_units >= 0),
-  status text not null default 'CONFIRMED' check (status in ('CONFIRMED','REORGED','FAILED')),
-  created_at timestamptz not null default now()
+  amount_base_units numeric(40,0) check (amount_base_units is null or amount_base_units >= 0),
+  status text not null default 'PREPARED' check (status in ('PREPARED','SENT','CONFIRMED','EXPIRED','REORGED','FAILED')),
+  serialized_tx text,
+  recent_blockhash text,
+  last_valid_block_height bigint,
+  error text,
+  created_at timestamptz not null default now(),
+  confirmed_at timestamptz
 );
 
 create index if not exists claims_token_id_idx on claims(token_id);
+create index if not exists claims_recovery_idx on claims(status, created_at);
 
 create table if not exists settlements (
   id uuid primary key default gen_random_uuid(),

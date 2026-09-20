@@ -4,7 +4,6 @@ import {
   bondingCurvePda,
   canonicalPumpPoolPda,
 } from "@pump-fun/pump-sdk";
-import { getPumpAmmProgram } from "@pump-fun/pump-swap-sdk";
 import { db, query } from "@/lib/db";
 import { rpcUrl, treasuryAddress } from "@/lib/config";
 
@@ -114,17 +113,25 @@ async function fetchSince(
 }
 
 function decodePumpTrade(data: Buffer) {
-  const sdk = PUMP_SDK as unknown as Record<string, unknown>;
-  const decoder = sdk["decodeTradeEvent"];
-  if (typeof decoder !== "function") {
-    throw new Error("Pump SDK does not expose decodeTradeEvent");
-  }
-  return (decoder as (buffer: Buffer) => unknown).call(PUMP_SDK, data);
+  return PUMP_SDK.decodeTradeEventBc(data);
 }
 
-function decodeAmmEvent(dataBase64: string, conn: Connection) {
-  const program = getPumpAmmProgram(conn);
-  return program.coder.events.decode(dataBase64);
+function decodeAmmTrade(data: Buffer) {
+  try {
+    return {
+      type: "buy" as const,
+      data: PUMP_SDK.decodeBuyEventAmm(data),
+    };
+  } catch {
+    try {
+      return {
+        type: "sell" as const,
+        data: PUMP_SDK.decodeSellEventAmm(data),
+      };
+    } catch {
+      return null;
+    }
+  }
 }
 
 async function insertFeeEvent(args: {
@@ -220,10 +227,8 @@ async function processAmmTransaction(
     if (!match) continue;
 
     try {
-      const decoded = decodeAmmEvent(match[1], connection());
+      const decoded = decodeAmmTrade(Buffer.from(match[1], "base64"));
       if (!decoded) continue;
-      const name = String(decoded.name || "").toLowerCase();
-      if (name !== "buyevent" && name !== "sellevent") continue;
 
       const event = decoded.data as unknown as Record<string, unknown>;
       const pool = publicKey(field(event, "pool", "pool"));

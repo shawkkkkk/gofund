@@ -158,6 +158,9 @@ export default function LaunchForm() {
     knownCheck?: LockCheck,
   ) {
     const mint = new PublicKey(state.mint);
+    if (state.launchSignature) {
+      await recordCreated(state.mint, state.launchSignature);
+    }
     const firstCheck = knownCheck || await verifyServerLock(state.mint, state.lockSignature);
 
     if (firstCheck.ok) {
@@ -209,6 +212,9 @@ export default function LaunchForm() {
     setError("");
     setBusy(true);
     try {
+      if (pending.launchSignature) {
+        await recordCreated(pending.mint, pending.launchSignature);
+      }
       const check = await verifyServerLock(pending.mint, pending.lockSignature);
       if (check.ok) {
         if (pending.launchSignature) await recordCreated(pending.mint, pending.launchSignature);

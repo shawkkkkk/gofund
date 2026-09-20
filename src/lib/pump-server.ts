@@ -41,16 +41,32 @@ export async function verifyLaunchTransaction(input: LaunchVerificationInput) {
   const launcher = new PublicKey(input.launcherWallet);
   const online = new OnlinePumpSdk(conn);
 
-  const events = await online.parseTransactionEvents(input.signature, "confirmed");
-  const create = events.find(
-    (event) => event.type === "create" && event.data.mint.equals(mint),
-  );
-
-  if (!create || create.type !== "create") {
-    return { ok: false as const, reason: "Confirmed Pump create event not found" };
+  const transaction = await conn.getTransaction(input.signature, {
+    commitment: "confirmed",
+    maxSupportedTransactionVersion: 0,
+  });
+  if (!transaction?.meta || transaction.meta.err) {
+    return { ok: false as const, reason: "Launch transaction is missing or failed" };
   }
 
-  const event = create.data;
+  let event: ReturnType<typeof PUMP_SDK.decodeCreateEvent> | null = null;
+  for (const log of transaction.meta.logMessages || []) {
+    const match = /^Program data: (.+)$/.exec(log);
+    if (!match) continue;
+    try {
+      const decoded = PUMP_SDK.decodeCreateEvent(Buffer.from(match[1], "base64"));
+      if (decoded.mint.equals(mint)) {
+        event = decoded;
+        break;
+      }
+    } catch {
+      // Other Anchor events share the same log prefix; ignore non-create data.
+    }
+  }
+
+  if (!event) {
+    return { ok: false as const, reason: "Confirmed Pump create event not found" };
+  }
   if (!event.user.equals(launcher) || !event.creator.equals(launcher)) {
     return { ok: false as const, reason: "Pump creator does not match launch wallet" };
   }

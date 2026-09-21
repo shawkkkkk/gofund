@@ -15,7 +15,7 @@ async function main() {
     connectionString,
     ssl: connectionString.includes("localhost")
       ? undefined
-      : { rejectUnauthorized: false },
+      : { rejectUnauthorized: true },
   });
 
   await client.connect();

@@ -39,6 +39,8 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Solana RPC compatibility smoke
         run: npm run smoke:web3
+      - name: Bigint compatibility smoke
+        run: npm run smoke:bigint
       - name: Typecheck
         run: npm run typecheck
       - name: Production build

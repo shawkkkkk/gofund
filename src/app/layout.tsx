@@ -3,8 +3,28 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "GoFund — Every trade gives",
-  description: "Launch Pump tokens whose creator fees are permanently routed toward real fundraising campaigns.",
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL || "https://gofund-production.up.railway.app",
+  ),
+  title: {
+    default: "GoFund — Every trade gives",
+    template: "%s · GoFund",
+  },
+  description:
+    "Launch Pump tokens with creator fees routed from genesis toward real fundraising campaigns, with public fee and settlement reconciliation.",
+  openGraph: {
+    title: "GoFund — Every trade gives",
+    description:
+      "Creator fees routed from token genesis toward real fundraising campaigns.",
+    type: "website",
+    siteName: "GoFund",
+  },
+  twitter: {
+    card: "summary",
+    title: "GoFund — Every trade gives",
+    description:
+      "Creator fees routed from token genesis toward real fundraising campaigns.",
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

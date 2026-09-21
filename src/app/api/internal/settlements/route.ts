@@ -235,7 +235,7 @@ export async function POST(request: Request) {
           );
         }
 
-        const inserted = await client.query<{ id: string }>(
+        const inserted = await client.query<{ id: string; receipt_number: string }>(
           `insert into settlements(
              campaign_id,
              source_asset,
@@ -244,7 +244,7 @@ export async function POST(request: Request) {
              conversion_reference,
              note
            ) values($1,$2,$3,$4,$5,$6)
-           returning id::text`,
+           returning id::text,receipt_number::text`,
           [
             input.campaignId,
             input.sourceAsset,
@@ -274,6 +274,7 @@ export async function POST(request: Request) {
         return NextResponse.json({
           ok: true,
           id: inserted.rows[0].id,
+          receiptNumber: "GFS-" + inserted.rows[0].receipt_number.padStart(6, "0"),
           availableBeforeBaseUnits: available.toString(),
           campaignAvailableBeforeBaseUnits: campaignAvailable.toString(),
           treasuryAvailableBeforeBaseUnits: treasuryAvailable.toString(),

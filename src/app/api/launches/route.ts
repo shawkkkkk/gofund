@@ -4,6 +4,7 @@ import { PublicKey } from "@solana/web3.js";
 import { appUrl } from "@/lib/config";
 import { query } from "@/lib/db";
 import { normalizeGoFundMeUrl } from "@/lib/gofundme";
+import { enforceRequestSize, rateLimit } from "@/lib/rate-limit";
 
 const schema = z.object({
   campaignUrl: z.string().url(),
@@ -18,7 +19,16 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
+  const gate = rateLimit(request, "launch-draft", 12, 60_000);
+  if (!gate.ok) {
+    return NextResponse.json(
+      { error: "Too many launch attempts" },
+      { status: 429, headers: { "retry-after": String(gate.retryAfterSeconds) } },
+    );
+  }
+
   try {
+    enforceRequestSize(request, 16_384);
     const input = schema.parse(await request.json());
     new PublicKey(input.launcherWallet);
     new PublicKey(input.mint);

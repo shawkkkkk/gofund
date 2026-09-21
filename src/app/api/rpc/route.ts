@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
+import { VersionedTransaction } from "@solana/web3.js";
 import { enforceRequestSize, rateLimit } from "@/lib/rate-limit";
 import { rpcUrl } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
+
+const PUMP_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
 
 const ALLOWED_METHODS = new Set([
   "getLatestBlockhash",
@@ -41,6 +44,62 @@ export async function POST(request: Request) {
         },
         { status: 403 },
       );
+    }
+
+    if (method === "sendTransaction") {
+      if (process.env.LAUNCH_ENABLED !== "true") {
+        return NextResponse.json(
+          {
+            jsonrpc: "2.0",
+            id: payload.id ?? null,
+            error: { code: -32004, message: "GoFund launches are disabled" },
+          },
+          { status: 503 },
+        );
+      }
+
+      const encoded =
+        Array.isArray(payload.params) && typeof payload.params[0] === "string"
+          ? payload.params[0]
+          : null;
+      if (!encoded) {
+        return NextResponse.json(
+          {
+            jsonrpc: "2.0",
+            id: payload.id ?? null,
+            error: { code: -32602, message: "Missing serialized transaction" },
+          },
+          { status: 400 },
+        );
+      }
+
+      try {
+        const tx = VersionedTransaction.deserialize(Buffer.from(encoded, "base64"));
+        if (tx.message.addressTableLookups.length) {
+          throw new Error("Address lookup tables are not allowed through the launch proxy");
+        }
+
+        const keys = tx.message.staticAccountKeys;
+        const invokesPump = tx.message.compiledInstructions.some((ix) => {
+          const program = keys[ix.programIdIndex];
+          return program?.toBase58() === PUMP_PROGRAM_ID;
+        });
+        if (!invokesPump) {
+          throw new Error("Only Pump launch transactions may be broadcast");
+        }
+      } catch (error) {
+        return NextResponse.json(
+          {
+            jsonrpc: "2.0",
+            id: payload.id ?? null,
+            error: {
+              code: -32602,
+              message: error instanceof Error ? error.message : "Invalid launch transaction",
+            },
+          },
+          { status: 403 },
+        );
+      }
     }
 
     const upstream = await fetch(rpcUrl(), {

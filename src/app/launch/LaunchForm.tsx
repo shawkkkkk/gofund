@@ -29,7 +29,7 @@ declare global {
 
 const treasury = process.env.NEXT_PUBLIC_GOFUND_TREASURY || "";
 
-export default function LaunchForm() {
+export default function LaunchForm({ available }: { available: boolean }) {
   const [campaignUrl, setCampaignUrl] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [campaignTitle, setCampaignTitle] = useState("");
@@ -218,6 +218,16 @@ export default function LaunchForm() {
   }
 
   return <div className="form-wrap">
+    {!available && (
+      <div className="panel" style={{gridColumn:"1/-1",borderStyle:"dashed"}}>
+        <div className="kicker">Launches paused</div>
+        <h3 style={{fontSize:28,marginTop:10}}>GoFund is not accepting mainnet launches yet.</h3>
+        <p className="muted">
+          The production launch gate stays closed until the dedicated Solana RPC,
+          worker, treasury, and readiness checks are all green.
+        </p>
+      </div>
+    )}
     <form className="panel" onSubmit={launch}>
       <div className="field">
         <label>1. GoFundMe campaign</label>
@@ -345,11 +355,11 @@ export default function LaunchForm() {
       )}
 
       <button
-        disabled={busy || !preview || !eligibilityConfirmed}
+        disabled={!available || busy || !preview || !eligibilityConfirmed}
         className="button green"
         style={{ width: "100%", marginTop: 12 }}
       >
-        {busy ? "Launching…" : "Launch & route fees"}
+        {!available ? "Launches paused" : busy ? "Launching…" : "Launch & route fees"}
       </button>
 
       {error && (

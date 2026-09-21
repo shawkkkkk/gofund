@@ -14,6 +14,7 @@ export type HomeData = {
     quote_asset: string;
     title: string;
     campaign_id: string;
+    verification_status: "UNVERIFIED" | "VERIFIED";
   }>;
 };
 
@@ -54,9 +55,10 @@ export async function getHomeData(): Promise<HomeData> {
         quote_asset: string;
         title: string;
         campaign_id: string;
+        verification_status: "UNVERIFIED" | "VERIFIED";
       }>(
         `select t.mint,t.name,t.symbol,t.fee_status,t.quote_asset,
-                c.title,c.id::text as campaign_id
+                c.title,c.id::text as campaign_id,c.verification_status
          from tokens t
          join campaigns c on c.id=t.campaign_id
          where t.fee_status='LOCKED'

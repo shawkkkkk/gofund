@@ -20,10 +20,10 @@ Do not open a public issue for a vulnerability that could cause loss of funds, f
 ## Production requirements
 
 Before enabling public monetary operation:
-- verify the Pump fee-sharing account on-chain for every listed token;
+- verify the confirmed Pump create event and bonding-curve creator route fees to the configured GoFund treasury for every listed token;
 - use a production Solana RPC;
 - enforce database backups and least-privilege credentials;
 - put internal settlement endpoints behind server-only authentication;
 - use controlled custody or a multisig for treasury operations;
-- reconcile on-chain distributions against settlement records;
+- reconcile indexed per-trade fee events, treasury collections, and settlement records;
 - test failure recovery for partially completed launches.

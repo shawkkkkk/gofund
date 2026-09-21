@@ -42,6 +42,7 @@ export default function LaunchForm() {
   const [status, setStatus] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [eligibilityConfirmed, setEligibilityConfirmed] = useState(false);
 
   async function connect() {
     setError("");
@@ -133,6 +134,9 @@ export default function LaunchForm() {
     if (!treasury) {
       return setError("GoFund treasury is not configured yet");
     }
+    if (!eligibilityConfirmed) {
+      return setError("Confirm eligibility and the GoFund disclosures before launching");
+    }
 
     setBusy(true);
     try {
@@ -164,6 +168,7 @@ export default function LaunchForm() {
           quoteAsset: quote,
           launcherWallet: user.toBase58(),
           mint: mint.publicKey.toBase58(),
+          eligibilityConfirmed: true,
         }),
       });
       const draft = await draftRes.json();
@@ -308,6 +313,23 @@ export default function LaunchForm() {
         </select>
       </div>
 
+      <div className="field">
+        <label style={{display:"flex",gap:10,alignItems:"flex-start",fontWeight:600}}>
+          <input
+            type="checkbox"
+            checked={eligibilityConfirmed}
+            onChange={(e) => setEligibilityConfirmed(e.target.checked)}
+            style={{width:18,height:18,marginTop:2,flex:"0 0 auto"}}
+          />
+          <span>
+            I confirm I am legally eligible to use Pump services, including being
+            of the legal age of majority in my jurisdiction, and I have read
+            GoFund&apos;s <a href="/terms" target="_blank">Terms</a> and{" "}
+            <a href="/disclosures" target="_blank">Disclosures</a>.
+          </span>
+        </label>
+      </div>
+
       {!wallet ? (
         <button
           type="button"
@@ -323,7 +345,7 @@ export default function LaunchForm() {
       )}
 
       <button
-        disabled={busy || !preview}
+        disabled={busy || !preview || !eligibilityConfirmed}
         className="button green"
         style={{ width: "100%", marginTop: 12 }}
       >

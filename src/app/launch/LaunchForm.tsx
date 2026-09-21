@@ -171,6 +171,7 @@ export default function LaunchForm({ available }: { available: boolean }) {
       metadataForm.append("file", imageFile);
       metadataForm.append("campaignUrl", preview.canonicalUrl);
       metadataForm.append("launcherWallet", user.toBase58());
+      metadataForm.append("mint", mint.publicKey.toBase58());
       metadataForm.append("name", name);
       metadataForm.append("symbol", symbol.toUpperCase());
       metadataForm.append("description", description);

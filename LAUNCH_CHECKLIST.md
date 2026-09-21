@@ -42,7 +42,8 @@
 - [ ] Organizer verification/opt-out queue staffed
 - [ ] Fraud/sanctions screening procedure approved
 - [ ] Accounting/reconciliation owner assigned
-- [ ] Incident-response contacts and pause procedure documented
+- [x] Incident-response pause/reconciliation procedure documented in OPERATIONS.md
+- [ ] Incident-response human contacts assigned
 - [ ] Legal review completed before unrestricted public monetary operation
 
 GoFund must remain with `LAUNCH_ENABLED=false` and `WORKER_ENABLED=false` until the unchecked infrastructure and operational gates are complete.

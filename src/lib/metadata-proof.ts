@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 export type MetadataProofPayload = {
   metadataUri: string;
+  mint: string;
   launcherWallet: string;
   campaignUrl: string;
   name: string;
@@ -18,6 +19,7 @@ function key() {
 function canonical(payload: MetadataProofPayload) {
   return JSON.stringify({
     metadataUri: payload.metadataUri,
+    mint: payload.mint,
     launcherWallet: payload.launcherWallet,
     campaignUrl: payload.campaignUrl,
     name: payload.name,

@@ -152,33 +152,8 @@ export async function prepareCreatorFeeCollection(
     asset === "SOL" ? NATIVE_MINT : new PublicKey(USDC_MINT);
 
   const balances = await online.getCreatorVaultQuoteBalances(creator);
-  const waiting = balances.find((entry) => {
-    const record = entry as unknown as Record<string, unknown>;
-    const mint = record.quoteMint ?? record.quote_mint ?? record.mint;
-    if (mint instanceof PublicKey) return mint.equals(quoteMint);
-    return mint ? String(mint) === quoteMint.toBase58() : false;
-  });
-
-  if (!waiting) return null;
-
-  const balanceRecord = waiting as unknown as Record<string, unknown>;
-  const numericFields = [
-    balanceRecord.balance,
-    balanceRecord.amount,
-    balanceRecord.totalBalance,
-    balanceRecord.total_balance,
-    balanceRecord.pumpBalance,
-    balanceRecord.pump_balance,
-    balanceRecord.pumpSwapBalance,
-    balanceRecord.pump_swap_balance,
-  ].filter((value) => value !== undefined && value !== null);
-
-  if (
-    numericFields.length > 0 &&
-    numericFields.every((value) => {
-      try { return BigInt(String(value)) <= 0n; } catch { return false; }
-    })
-  ) {
+  const waiting = balances.find((entry) => entry.mint.equals(quoteMint));
+  if (!waiting || waiting.total.isZero()) {
     return null;
   }
 

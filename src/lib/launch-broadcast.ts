@@ -1,123 +1,78 @@
 import { PublicKey, VersionedTransaction } from "@solana/web3.js";
-import { PUMP_SDK } from "@pump-fun/pump-sdk";
 import { query } from "@/lib/db";
-import { treasuryAddress, USDC_MINT } from "@/lib/config";
+import { launchMessageHash } from "@/lib/build-launch";
 
-type Draft = {
+type BuildRow = {
   mint: string;
-  name: string;
-  symbol: string;
-  metadata_uri: string;
-  quote_asset: "SOL" | "USDC";
   launcher_wallet: string;
   fee_status: "DRAFT" | "CREATED" | "LOCKED" | "INVALID";
   campaign_status: "UNVERIFIED" | "VERIFIED" | "OPTED_OUT";
+  recent_blockhash: string;
+  last_valid_block_height: string;
 };
 
-function sameBytes(a: Uint8Array, b: Uint8Array) {
-  return Buffer.from(a).equals(Buffer.from(b));
+function isZeroSignature(signature: Uint8Array) {
+  for (const byte of signature) {
+    if (byte !== 0) return false;
+  }
+  return true;
 }
 
 export async function verifyLaunchBroadcast(tx: VersionedTransaction) {
   if (tx.message.addressTableLookups.length) {
     throw new Error("Address lookup tables are not allowed through the launch proxy");
   }
-  if (tx.message.compiledInstructions.length !== 1) {
-    throw new Error("GoFund launch transactions must contain exactly one top-level instruction");
-  }
 
-  const compiled = tx.message.compiledInstructions[0];
-  const staticKeys = tx.message.staticAccountKeys;
-  const program = staticKeys[compiled.programIdIndex];
-  if (!program) throw new Error("Launch program account missing");
-
-  const accountIndexes = [...compiled.accountKeyIndexes];
-  if (accountIndexes.length < 6) {
-    throw new Error("Pump create_v2 account list is incomplete");
-  }
-
-  const mintIndex = accountIndexes[0];
-  const userIndex = accountIndexes[5];
-  const mint = staticKeys[mintIndex];
-  const user = staticKeys[userIndex];
-  const payer = staticKeys[0];
-
-  if (!mint || !user || !payer) {
-    throw new Error("Launch mint, user, or payer is missing");
-  }
-  if (!tx.message.isAccountSigner(mintIndex)) {
-    throw new Error("Mint must sign the launch transaction");
-  }
-  if (!tx.message.isAccountSigner(userIndex)) {
-    throw new Error("Launcher wallet must sign the launch transaction");
-  }
-
-  const draftResult = await query<Draft>(
-    `select t.mint,t.name,t.symbol,t.metadata_uri,t.quote_asset,t.launcher_wallet,
-            t.fee_status,c.verification_status as campaign_status
-     from tokens t
+  const hash = launchMessageHash(tx);
+  const result = await query<BuildRow>(
+    `select lb.mint,t.launcher_wallet,t.fee_status,
+            c.verification_status as campaign_status,
+            lb.recent_blockhash,lb.last_valid_block_height::text
+     from launch_builds lb
+     join tokens t on t.mint=lb.mint
      join campaigns c on c.id=t.campaign_id
-     where t.mint=$1`,
-    [mint.toBase58()],
+     where lb.message_hash=$1`,
+    [hash],
   );
-  const draft = draftResult.rows[0];
-  if (!draft) throw new Error("No GoFund launch draft exists for this mint");
-  if (draft.fee_status !== "DRAFT") {
-    throw new Error("Only DRAFT launches may be broadcast through this endpoint");
+  const build = result.rows[0];
+
+  if (!build) {
+    throw new Error("Transaction was not built by GoFund");
   }
-  if (draft.campaign_status === "OPTED_OUT") {
+  if (build.fee_status !== "DRAFT") {
+    throw new Error("Only DRAFT launches may be broadcast");
+  }
+  if (build.campaign_status === "OPTED_OUT") {
     throw new Error("This fundraiser has opted out of GoFund");
   }
-
-  const launcher = new PublicKey(draft.launcher_wallet);
-  if (!user.equals(launcher) || !payer.equals(launcher)) {
-    throw new Error("Transaction payer/user does not match the GoFund launch draft");
+  if (tx.message.recentBlockhash !== build.recent_blockhash) {
+    throw new Error("Launch blockhash does not match the GoFund build");
   }
 
-  const treasury = new PublicKey(treasuryAddress());
-  const expected = await PUMP_SDK.createV2Instruction({
-    mint,
-    name: draft.name,
-    symbol: draft.symbol,
-    uri: draft.metadata_uri,
-    creator: treasury,
-    user: launcher,
-    mayhemMode: false,
-    holderReward: false,
-    ...(draft.quote_asset === "USDC"
-      ? { quoteMint: new PublicKey(USDC_MINT) }
-      : {}),
-  });
-
-  if (!program.equals(expected.programId)) {
-    throw new Error("Unexpected program for GoFund launch");
-  }
-  if (!sameBytes(compiled.data, expected.data)) {
-    throw new Error("Pump create_v2 instruction data does not match the GoFund draft");
-  }
-  if (compiled.accountKeyIndexes.length !== expected.keys.length) {
-    throw new Error("Pump create_v2 account list does not match the GoFund draft");
+  const required = tx.message.header.numRequiredSignatures;
+  if (required < 2 || tx.signatures.length < required) {
+    throw new Error("Launch transaction is missing required signatures");
   }
 
-  for (let i = 0; i < expected.keys.length; i += 1) {
-    const index = compiled.accountKeyIndexes[i];
-    const actual = staticKeys[index];
-    const meta = expected.keys[i];
+  const signerKeys = tx.message.staticAccountKeys.slice(0, required);
+  const launcher = new PublicKey(build.launcher_wallet);
+  const mint = new PublicKey(build.mint);
+  const launcherIndex = signerKeys.findIndex((key) => key.equals(launcher));
+  const mintIndex = signerKeys.findIndex((key) => key.equals(mint));
 
-    if (!actual || !actual.equals(meta.pubkey)) {
-      throw new Error("Pump create_v2 account " + i + " does not match the GoFund draft");
-    }
-    if (tx.message.isAccountSigner(index) !== meta.isSigner) {
-      throw new Error("Pump create_v2 signer permissions do not match");
-    }
-    if (tx.message.isAccountWritable(index) !== meta.isWritable) {
-      throw new Error("Pump create_v2 writable permissions do not match");
-    }
+  if (launcherIndex < 0 || mintIndex < 0) {
+    throw new Error("GoFund launch signer set is invalid");
+  }
+  if (
+    isZeroSignature(tx.signatures[launcherIndex]) ||
+    isZeroSignature(tx.signatures[mintIndex])
+  ) {
+    throw new Error("Launcher and mint must both sign the GoFund launch");
   }
 
   return {
-    mint: mint.toBase58(),
-    launcher: launcher.toBase58(),
-    treasury: treasury.toBase58(),
+    mint: build.mint,
+    launcher: build.launcher_wallet,
+    messageHash: hash,
   };
 }

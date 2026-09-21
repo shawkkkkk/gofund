@@ -78,14 +78,28 @@ export async function GET() {
   try {
     const url = new URL(rpcUrl());
     const privateReady = productionRpcReady();
-    checks.rpc = {
-      ok: privateReady,
-      detail: privateReady
-        ? url.hostname
-        : "dedicated HTTPS Solana RPC required; public cluster RPC is not launch-ready",
-    };
+    if (!privateReady) {
+      checks.rpc = {
+        ok: false,
+        detail: "dedicated HTTPS Solana RPC required; public cluster RPC is not launch-ready",
+      };
+    } else {
+      const connection = new Connection(rpcUrl(), "confirmed");
+      const [genesisHash, blockHeight] = await Promise.all([
+        connection.getGenesisHash(),
+        connection.getBlockHeight("confirmed"),
+      ]);
+      const expectedMainnetGenesis = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+      checks.rpc = {
+        ok: genesisHash === expectedMainnetGenesis && blockHeight > 0,
+        detail:
+          genesisHash === expectedMainnetGenesis
+            ? url.hostname + " · mainnet verified"
+            : "RPC is reachable but is not Solana mainnet",
+      };
+    }
   } catch {
-    checks.rpc = { ok: false, detail: "invalid URL" };
+    checks.rpc = { ok: false, detail: "RPC unreachable or invalid" };
   }
 
   const feePayer = process.env.FEE_PAYER_SECRET_KEY;

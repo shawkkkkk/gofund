@@ -27,3 +27,11 @@ Before enabling public monetary operation:
 - use controlled custody or a multisig for treasury operations;
 - reconcile indexed per-trade fee events, treasury collections, and settlement records;
 - test failure recovery for partially completed launches.
+
+## Dependency hardening
+
+GoFund pins production dependencies with `package-lock.json` and CI uses `npm ci`.
+
+The Solana 1.x dependency tree historically pulled `bigint-buffer` 1.1.5, whose optional native converter has a high-severity availability vulnerability in `toBigIntLE`. GoFund replaces that transitive package with `vendor/bigint-buffer-safe`, a pure-JavaScript compatibility implementation, and runs explicit conversion and Solana JSON-RPC smoke tests in CI.
+
+CI also runs `npm audit --omit=dev --audit-level=high` and must remain green before production deployment.

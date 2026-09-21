@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   ComputeBudgetProgram,
   Connection,
@@ -10,6 +11,7 @@ import { getAssociatedTokenAddress, NATIVE_MINT, TOKEN_PROGRAM_ID } from "@solan
 import { OnlinePumpSdk, PUMP_SDK } from "@pump-fun/pump-sdk";
 import bs58 from "bs58";
 import { rpcUrl, treasuryAddress, USDC_MINT } from "@/lib/config";
+import { query } from "@/lib/db";
 
 export type PreparedCollection = {
   signature: string;
@@ -45,6 +47,21 @@ export async function verifyLaunchTransaction(input: LaunchVerificationInput) {
   });
   if (!transaction?.meta || transaction.meta.err) {
     return { ok: false as const, reason: "Launch transaction is missing or failed" };
+  }
+
+  const buildResult = await query<{ message_hash: string }>(
+    `select message_hash from launch_builds where mint=$1`,
+    [input.mint],
+  );
+  const expectedMessageHash = buildResult.rows[0]?.message_hash;
+  if (!expectedMessageHash) {
+    return { ok: false as const, reason: "No GoFund launch build exists for this mint" };
+  }
+  const confirmedMessageHash = createHash("sha256")
+    .update(Buffer.from(transaction.transaction.message.serialize()))
+    .digest("hex");
+  if (confirmedMessageHash !== expectedMessageHash) {
+    return { ok: false as const, reason: "Confirmed transaction does not match the GoFund launch build" };
   }
 
   let event: ReturnType<typeof PUMP_SDK.decodeCreateEventBc> | null = null;

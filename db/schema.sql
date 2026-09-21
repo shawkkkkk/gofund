@@ -54,6 +54,7 @@ create index if not exists claims_recovery_idx on claims(status, created_at);
 
 create table if not exists settlements (
   id uuid primary key default gen_random_uuid(),
+  receipt_number bigserial unique,
   campaign_id uuid not null references campaigns(id),
   source_asset text not null check (source_asset in ('SOL','USDC')),
   source_amount_base_units numeric(40,0) not null check (source_amount_base_units > 0),
@@ -114,6 +115,7 @@ create table if not exists index_cursors (
 -- not assigned to one token or campaign.
 create table if not exists collections (
   id uuid primary key default gen_random_uuid(),
+  receipt_number bigserial unique,
   signature text not null unique,
   sol_amount_base_units numeric(40,0) check (sol_amount_base_units is null or sol_amount_base_units >= 0),
   usdc_amount_base_units numeric(40,0) check (usdc_amount_base_units is null or usdc_amount_base_units >= 0),
@@ -143,3 +145,12 @@ create table if not exists worker_state (
 alter table settlements drop constraint if exists settlements_status_check;
 alter table settlements add constraint settlements_status_check
   check (status in ('QUEUED','PROCESSING','HELD','COMPLETED','FAILED','CANCELLED'));
+
+
+alter table settlements add column if not exists receipt_number bigserial;
+create unique index if not exists settlements_receipt_number_uidx
+  on settlements(receipt_number);
+
+alter table collections add column if not exists receipt_number bigserial;
+create unique index if not exists collections_receipt_number_uidx
+  on collections(receipt_number);

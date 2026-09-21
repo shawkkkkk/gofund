@@ -16,6 +16,7 @@ const schema = z.object({
   quoteAsset: z.enum(["SOL", "USDC"]),
   launcherWallet: z.string(),
   mint: z.string(),
+  eligibilityConfirmed: z.literal(true),
 });
 
 export async function POST(request: Request) {

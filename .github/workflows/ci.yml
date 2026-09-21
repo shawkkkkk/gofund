@@ -25,6 +25,8 @@ jobs:
           name: generated-package-lock
           path: package-lock.json
           retention-days: 1
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
       - name: Typecheck
         run: npm run typecheck
       - name: Production build

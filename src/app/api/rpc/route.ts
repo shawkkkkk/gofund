@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import { VersionedTransaction } from "@solana/web3.js";
+import { verifyLaunchBroadcast } from "@/lib/launch-broadcast";
 import { enforceRequestSize, rateLimit } from "@/lib/rate-limit";
 import { productionRpcReady, rpcUrl } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
-
-const PUMP_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
 
 const ALLOWED_METHODS = new Set([
   "getLatestBlockhash",
@@ -82,19 +81,7 @@ export async function POST(request: Request) {
 
       try {
         const tx = VersionedTransaction.deserialize(Buffer.from(encoded, "base64"));
-        if (tx.message.addressTableLookups.length) {
-          throw new Error("Address lookup tables are not allowed through the launch proxy");
-        }
-
-        const keys = tx.message.staticAccountKeys;
-        if (tx.message.compiledInstructions.length !== 1) {
-          throw new Error("GoFund launch transactions must contain exactly one top-level instruction");
-        }
-        const instruction = tx.message.compiledInstructions[0];
-        const program = keys[instruction.programIdIndex];
-        if (program?.toBase58() !== PUMP_PROGRAM_ID) {
-          throw new Error("Only Pump launch transactions may be broadcast");
-        }
+        await verifyLaunchBroadcast(tx);
       } catch (error) {
         return NextResponse.json(
           {

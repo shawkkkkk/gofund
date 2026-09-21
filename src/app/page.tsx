@@ -47,7 +47,7 @@ export default async function Home() {
       <div className="section-head"><div><div className="kicker">Recent launches</div><h2>Coins funding people.</h2></div><Link href="/explore" className="muted">Explore all →</Link></div>
       <div className="grid">
         {data.recent.length ? data.recent.map((token) => <Link className="card" key={token.mint} href={"/campaigns/" + token.campaign_id}>
-          <div className="eyebrow">{token.title}</div><h3 style={{fontSize:27,marginTop:8}}>{token.name} <span className="muted">{"$"}{token.symbol}</span></h3>
+          <div className="eyebrow">{token.title} · {token.verification_status === "VERIFIED" ? "organizer verified" : "community reference"}</div><h3 style={{fontSize:27,marginTop:8}}>{token.name} <span className="muted">{"$"}{token.symbol}</span></h3>
           <div className="token-line"><span>{token.quote_asset} pair</span><span className="badge locked">VERIFIED</span></div>
         </Link>) : <div className="card" style={{gridColumn:"1/-1"}}><h3>First launch is waiting.</h3><p className="muted">Verified launches appear here after the production database, treasury, RPC, and fee indexer are active.</p></div>}
       </div>

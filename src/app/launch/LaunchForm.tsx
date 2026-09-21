@@ -36,7 +36,7 @@ export default function LaunchForm({ available }: { available: boolean }) {
   const [name, setName] = useState("");
   const [symbol, setSymbol] = useState("");
   const [description, setDescription] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [quote, setQuote] = useState<"SOL" | "USDC">("USDC");
   const [wallet, setWallet] = useState("");
   const [status, setStatus] = useState<string[]>([]);
@@ -134,6 +134,9 @@ export default function LaunchForm({ available }: { available: boolean }) {
     if (!treasury) {
       return setError("GoFund treasury is not configured yet");
     }
+    if (!imageFile) {
+      return setError("Choose a token image");
+    }
     if (!eligibilityConfirmed) {
       return setError("Confirm eligibility and the GoFund disclosures before launching");
     }
@@ -155,6 +158,25 @@ export default function LaunchForm({ available }: { available: boolean }) {
         "Creator-fee recipient: GoFund treasury",
       ]);
 
+      const metadataForm = new FormData();
+      metadataForm.append("file", imageFile);
+      metadataForm.append("campaignUrl", preview.canonicalUrl);
+      metadataForm.append("launcherWallet", user.toBase58());
+      metadataForm.append("name", name);
+      metadataForm.append("symbol", symbol.toUpperCase());
+      metadataForm.append("description", description);
+
+      setStatus((s) => [...s, "Uploading image + immutable metadata to IPFS…"]);
+      const uploadRes = await fetch("/api/uploads/metadata", {
+        method: "POST",
+        body: metadataForm,
+      });
+      const upload = await uploadRes.json();
+      if (!uploadRes.ok) {
+        throw new Error(upload.error || "Could not upload token metadata");
+      }
+      setStatus((s) => [...s, "✓ Metadata pinned"]);
+
       const draftRes = await fetch("/api/launches", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -164,7 +186,8 @@ export default function LaunchForm({ available }: { available: boolean }) {
           name,
           symbol,
           description,
-          imageUrl: imageUrl || null,
+          metadataUri: upload.metadataUri,
+          metadataProof: upload.metadataProof,
           quoteAsset: quote,
           launcherWallet: user.toBase58(),
           mint: mint.publicKey.toBase58(),
@@ -303,13 +326,16 @@ export default function LaunchForm({ available }: { available: boolean }) {
       </div>
 
       <div className="field">
-        <label>Image URL</label>
+        <label>Token image</label>
         <input
-          type="url"
-          value={imageUrl}
-          onChange={(e) => setImageUrl(e.target.value)}
-          placeholder="https://..."
+          required
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          onChange={(e) => setImageFile(e.target.files?.[0] || null)}
         />
+        <small className="muted">
+          PNG, JPEG, GIF, or WebP · max 5 MB · pinned with the token metadata.
+        </small>
       </div>
 
       <div className="field">

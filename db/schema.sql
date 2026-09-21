@@ -58,7 +58,7 @@ create table if not exists settlements (
   source_asset text not null check (source_asset in ('SOL','USDC')),
   source_amount_base_units numeric(40,0) not null check (source_amount_base_units > 0),
   amount_cents bigint not null check (amount_cents > 0),
-  status text not null default 'QUEUED' check (status in ('QUEUED','PROCESSING','COMPLETED','FAILED','CANCELLED')),
+  status text not null default 'QUEUED' check (status in ('QUEUED','PROCESSING','HELD','COMPLETED','FAILED','CANCELLED')),
   conversion_reference text,
   donation_reference text,
   receipt_url text,
@@ -137,3 +137,9 @@ create table if not exists worker_state (
   last_error text,
   updated_at timestamptz not null default now()
 );
+
+
+-- Keep existing production databases aligned when settlement states evolve.
+alter table settlements drop constraint if exists settlements_status_check;
+alter table settlements add constraint settlements_status_check
+  check (status in ('QUEUED','PROCESSING','HELD','COMPLETED','FAILED','CANCELLED'));

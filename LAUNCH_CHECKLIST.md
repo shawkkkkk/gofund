@@ -24,6 +24,8 @@
 - [x] Production domain exists
 - [x] DB migration runs before deploy
 - [x] Build runs TypeScript + Next production build
+- [x] Production dependency audit passes at high/critical severity
+- [x] npm lockfile committed and CI uses deterministic npm ci
 - [x] Internal API secret configured
 - [x] Separate low-balance fee-payer key configured
 - [x] Treasury public key configured in both server and client env

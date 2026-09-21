@@ -17,11 +17,13 @@ export async function POST(request: Request) {
   }
 
   const tokens = await query<IndexableToken>(
-    `select id::text,mint,quote_asset,launch_signature
-     from tokens
-     where fee_status='LOCKED'
-       and launch_signature is not null
-     order by locked_at asc
+    `select t.id::text,t.mint,t.quote_asset,t.launch_signature
+     from tokens t
+     left join index_cursors ic on ic.token_id=t.id
+     where t.fee_status='LOCKED'
+       and t.launch_signature is not null
+     group by t.id,t.mint,t.quote_asset,t.launch_signature,t.locked_at
+     order by coalesce(max(ic.updated_at), t.locked_at) asc
      limit 50`,
   );
 

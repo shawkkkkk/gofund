@@ -26,13 +26,13 @@
 - [x] Build runs TypeScript + Next production build
 - [x] Internal API secret configured
 - [x] Separate low-balance fee-payer key configured
-- [ ] Treasury public key configured in both server and client env
+- [x] Treasury public key configured in both server and client env
 - [ ] Production-grade Solana RPC configured
 - [ ] Fee-payer wallet funded with a small SOL gas balance
 - [ ] Worker enabled
 - [ ] Mainnet launch switch enabled
 - [ ] Current GitHub main deployed to production
-- [ ] Railway liveness healthcheck set to /api/live
+- [x] Railway liveness healthcheck set to /api/live
 
 ## Operational / legal
 - [ ] Treasury custody/multisig policy approved

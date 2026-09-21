@@ -16,6 +16,7 @@ const schema = z.object({
   metadataUri: z.string().url(),
   metadataProof: z.string().regex(/^[a-f0-9]{64}$/i),
   quoteAsset: z.enum(["SOL", "USDC"]),
+  firstBuyBaseUnits: z.string().regex(/^\d+$/).default("0"),
   launcherWallet: z.string(),
   mint: z.string(),
   eligibilityConfirmed: z.literal(true),
@@ -48,6 +49,18 @@ export async function POST(request: Request) {
     const input = schema.parse(await request.json());
     new PublicKey(input.launcherWallet);
     new PublicKey(input.mint);
+    const firstBuy = BigInt(input.firstBuyBaseUnits);
+    if (firstBuy > 10_000_000_000n) {
+      return NextResponse.json(
+        {
+          error:
+            input.quoteAsset === "SOL"
+              ? "Optional first buy is limited to 10 SOL"
+              : "Optional first buy is limited to 10,000 USDC",
+        },
+        { status: 400 },
+      );
+    }
 
     const campaign = normalizeGoFundMeUrl(input.campaignUrl);
     const metadataVerified = verifyMetadataProof(
@@ -93,8 +106,8 @@ export async function POST(request: Request) {
     await query(
       `insert into tokens(
          campaign_id,mint,name,symbol,description,image_url,quote_asset,
-         launcher_wallet,metadata_uri
-       ) values($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+         first_buy_base_units,launcher_wallet,metadata_uri
+       ) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [
         row.id,
         input.mint,
@@ -103,6 +116,7 @@ export async function POST(request: Request) {
         input.description,
         null,
         input.quoteAsset,
+        input.firstBuyBaseUnits,
         input.launcherWallet,
         metadataUri,
       ],

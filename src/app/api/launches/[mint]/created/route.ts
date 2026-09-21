@@ -3,6 +3,7 @@ import { z } from "zod";
 import { query } from "@/lib/db";
 import { treasuryAddress } from "@/lib/config";
 import { verifyLaunchTransaction } from "@/lib/pump-server";
+import { enforceRequestSize, rateLimit } from "@/lib/rate-limit";
 
 const schema = z.object({ signature: z.string().min(20) });
 
@@ -21,7 +22,16 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ mint: string }> },
 ) {
+  const gate = rateLimit(request, "launch-confirm", 20, 60_000);
+  if (!gate.ok) {
+    return NextResponse.json(
+      { error: "Too many verification attempts" },
+      { status: 429, headers: { "retry-after": String(gate.retryAfterSeconds) } },
+    );
+  }
+
   try {
+    enforceRequestSize(request, 4_096);
     const { mint } = await params;
     const { signature } = schema.parse(await request.json());
 

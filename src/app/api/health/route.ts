@@ -32,6 +32,7 @@ export async function GET() {
         collections: string | null;
         settlements: string | null;
         worker_state: string | null;
+        launch_builds: string | null;
       }>(
         `select
            to_regclass('public.campaigns')::text as campaigns,
@@ -39,7 +40,8 @@ export async function GET() {
            to_regclass('public.fee_events')::text as fee_events,
            to_regclass('public.collections')::text as collections,
            to_regclass('public.settlements')::text as settlements,
-           to_regclass('public.worker_state')::text as worker_state`,
+           to_regclass('public.worker_state')::text as worker_state,
+           to_regclass('public.launch_builds')::text as launch_builds`,
       );
       const row = schema.rows[0];
       const complete = Boolean(
@@ -48,7 +50,8 @@ export async function GET() {
         row?.fee_events &&
         row?.collections &&
         row?.settlements &&
-        row?.worker_state,
+        row?.worker_state &&
+        row?.launch_builds,
       );
       checks.database = {
         ok: complete,

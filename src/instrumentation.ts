@@ -2,6 +2,32 @@ declare global {
   var __gofundWorkerStarted: boolean | undefined;
 }
 
+async function recordWorkerState(
+  base: string,
+  secret: string,
+  status: "success" | "error",
+  error?: string,
+) {
+  try {
+    await fetch(base + "/api/internal/worker-heartbeat", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer " + secret,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ status, error: error || null }),
+      cache: "no-store",
+    });
+  } catch (heartbeatError) {
+    console.error(
+      "[gofund-worker] heartbeat failed",
+      heartbeatError instanceof Error
+        ? heartbeatError.message
+        : String(heartbeatError),
+    );
+  }
+}
+
 async function runWorkerTick() {
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret) {
@@ -20,7 +46,9 @@ async function runWorkerTick() {
       cache: "no-store",
     });
     if (!indexed.ok) {
-      console.error("[gofund-worker] index-fees returned", indexed.status);
+      const message = "index-fees returned " + indexed.status;
+      console.error("[gofund-worker]", message);
+      await recordWorkerState(base, secret, "error", message);
       return;
     }
 
@@ -30,13 +58,17 @@ async function runWorkerTick() {
       cache: "no-store",
     });
     if (!collected.ok) {
-      console.error("[gofund-worker] collection returned", collected.status);
+      const message = "collection returned " + collected.status;
+      console.error("[gofund-worker]", message);
+      await recordWorkerState(base, secret, "error", message);
+      return;
     }
+
+    await recordWorkerState(base, secret, "success");
   } catch (error) {
-    console.error(
-      "[gofund-worker] tick failed",
-      error instanceof Error ? error.message : String(error),
-    );
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[gofund-worker] tick failed", message);
+    await recordWorkerState(base, secret, "error", message);
   }
 }
 

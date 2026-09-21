@@ -12,7 +12,7 @@ GoFund is a fundraising launchpad for Pump tokens. A launcher selects a public G
 
 A token is never shown as active until GoFund independently verifies on-chain that:
 
-1. the submitted transaction contains the expected Pump create event;
+1. the confirmed transaction message matches the exact server-built GoFund fingerprint;
 2. the transaction payer is the launcher's wallet;
 3. the mint, name, ticker, metadata URI, and quote asset match the GoFund draft;
 4. the Pump creator in the create event is the configured GoFund treasury;
@@ -24,11 +24,12 @@ Pump's current `create_v2` model makes the `creator` argument the creator-fee re
 
 1. Paste a canonical GoFundMe URL. GoFund validates the URL format but does not scrape campaign content.
 2. Connect a Solana browser wallet.
-3. Enter a community-supplied fundraiser label, token name, ticker, image URL, description, and SOL/USDC pair.
-4. GoFund drafts a Pump `create_v2` transaction whose `user` is the launcher and whose `creator` is the GoFund treasury.
-5. The wallet signs one creation transaction.
-6. GoFund parses the confirmed Pump create event and reads the bonding curve before marking the launch active.
-7. On-chain fee events are reconciled to the named fundraiser; GoFundMe settlements are recorded as a separate state and are never mislabeled as on-chain donations.
+3. Enter a community-supplied fundraiser label, token name, ticker, description, SOL/USDC pair, and upload an image. GoFund sends the image + metadata to Pump's IPFS endpoint and cryptographically binds the returned metadata URI to that exact draft.
+4. Optionally choose a first buy (up to 10 SOL or 10,000 USDC). A first buy is the launcher's token purchase, not a fundraiser donation.
+5. GoFund builds the exact unsigned Pump transaction server-side, stores a SHA-256 fingerprint of the message, and returns it for wallet signatures. The `user` is the launcher while `creator` is the GoFund treasury.
+6. The relay accepts only the exact fingerprinted GoFund transaction. The wallet and mint both sign it.
+7. After confirmation, GoFund independently fingerprints the on-chain transaction again, parses the Pump create event, and reads the bonding curve before marking the launch active.
+8. Per-trade creator-fee events create campaign obligations; treasury collections are tracked separately; GoFundMe settlements become completed only with a real payment reference or receipt.
 
 The crypto fee record and the GoFundMe donation are intentionally distinct states. The UI must never call funds “donated” until the GoFundMe-side settlement is completed.
 
@@ -70,3 +71,14 @@ GoFund intentionally does not scrape GoFundMe or automate its checkout without a
 `creator fees generated -> GoFund-controlled fee destination -> campaign obligation -> completed GoFundMe donation`
 
 That reconciliation is a product feature, not a hidden operational detail.
+
+
+## Public receipts
+
+GoFund keeps each accounting stage separate:
+
+- `fee_events`: per-token Pump/PumpSwap creator-fee obligations attributed to a fundraiser.
+- `GFC-######`: numbered treasury collection receipts for confirmed creator-vault sweeps.
+- `GFS-######`: numbered fundraiser settlement receipts.
+- `HELD`: a settlement that remains reserved/owed but cannot currently be completed; the public ledger shows the hold reason.
+- `COMPLETED`: requires an actual GoFundMe-side donation reference; an on-chain collection alone is never called a donation.

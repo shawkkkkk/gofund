@@ -1,0 +1,40 @@
+name: Fundraiser organizer request
+description: Request verification, a correction, or an opt-out for a fundraiser referenced by GoFund.
+title: "[Organizer] "
+labels: ["organizer-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not post passwords, wallet seed phrases, banking information, government IDs, medical records, or other sensitive personal information here. This repository is public.
+  - type: dropdown
+    id: request
+    attributes:
+      label: Request type
+      options:
+        - Verification
+        - Correct fundraiser display information
+        - Opt out of GoFund discovery/new launches
+    validations:
+      required: true
+  - type: input
+    id: campaign
+    attributes:
+      label: GoFundMe fundraiser URL
+      placeholder: https://www.gofundme.com/f/...
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Request details
+      description: Explain the correction or request without including sensitive information.
+    validations:
+      required: true
+  - type: checkboxes
+    id: acknowledgement
+    attributes:
+      label: Acknowledgement
+      options:
+        - label: I understand GoFund may need a private follow-up channel to verify organizer authority before changing verified status.
+          required: true

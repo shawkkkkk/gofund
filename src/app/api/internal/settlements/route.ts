@@ -32,6 +32,115 @@ const schema = z.discriminatedUnion("action", [
   }),
 ]);
 
+export async function GET(request: Request) {
+  if (!authorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const rows = await query<{
+      campaign_id: string;
+      title: string;
+      canonical_url: string;
+      verification_status: string;
+      asset: "SOL" | "USDC";
+      earned: string;
+      reserved: string;
+      collected: string;
+      globally_reserved: string;
+    }>(
+      `with campaign_assets as (
+         select
+           c.id as campaign_id,
+           c.title,
+           c.canonical_url,
+           c.verification_status,
+           fe.asset,
+           coalesce(sum(fe.amount_base_units),0)::numeric as earned
+         from campaigns c
+         join tokens t on t.campaign_id=c.id
+         join fee_events fe on fe.token_id=t.id
+         where c.verification_status <> 'OPTED_OUT'
+         group by c.id,c.title,c.canonical_url,c.verification_status,fe.asset
+       ),
+       campaign_reserved as (
+         select campaign_id,source_asset as asset,
+                coalesce(sum(source_amount_base_units),0)::numeric as reserved
+         from settlements
+         where status in ('QUEUED','PROCESSING','COMPLETED')
+         group by campaign_id,source_asset
+       ),
+       collected as (
+         select 'SOL'::text as asset,
+                coalesce(sum(sol_amount_base_units),0)::numeric as amount
+         from collections where status='CONFIRMED'
+         union all
+         select 'USDC'::text as asset,
+                coalesce(sum(usdc_amount_base_units),0)::numeric as amount
+         from collections where status='CONFIRMED'
+       ),
+       global_reserved as (
+         select source_asset as asset,
+                coalesce(sum(source_amount_base_units),0)::numeric as amount
+         from settlements
+         where status in ('QUEUED','PROCESSING','COMPLETED')
+         group by source_asset
+       )
+       select
+         ca.campaign_id::text,
+         ca.title,
+         ca.canonical_url,
+         ca.verification_status,
+         ca.asset,
+         ca.earned::text,
+         coalesce(cr.reserved,0)::text as reserved,
+         coalesce(col.amount,0)::text as collected,
+         coalesce(gr.amount,0)::text as globally_reserved
+       from campaign_assets ca
+       left join campaign_reserved cr
+         on cr.campaign_id=ca.campaign_id and cr.asset=ca.asset
+       left join collected col on col.asset=ca.asset
+       left join global_reserved gr on gr.asset=ca.asset
+       order by ca.title,ca.asset`,
+    );
+
+    return NextResponse.json({
+      campaigns: rows.rows.map((row) => {
+        const earned = BigInt(row.earned);
+        const reserved = BigInt(row.reserved);
+        const collected = BigInt(row.collected);
+        const globallyReserved = BigInt(row.globally_reserved);
+        const campaignAvailable = earned > reserved ? earned - reserved : 0n;
+        const treasuryAvailable =
+          collected > globallyReserved ? collected - globallyReserved : 0n;
+        const settleable =
+          campaignAvailable < treasuryAvailable
+            ? campaignAvailable
+            : treasuryAvailable;
+
+        return {
+          campaignId: row.campaign_id,
+          title: row.title,
+          canonicalUrl: row.canonical_url,
+          verificationStatus: row.verification_status,
+          asset: row.asset,
+          earnedBaseUnits: earned.toString(),
+          reservedBaseUnits: reserved.toString(),
+          campaignAvailableBaseUnits: campaignAvailable.toString(),
+          treasuryCollectedBaseUnits: collected.toString(),
+          treasuryAvailableBaseUnits: treasuryAvailable.toString(),
+          settleableBaseUnits: settleable.toString(),
+        };
+      }),
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Reconciliation failed" },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(request: Request) {
   if (!authorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

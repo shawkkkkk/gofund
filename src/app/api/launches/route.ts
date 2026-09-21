@@ -19,6 +19,13 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
+  if (process.env.LAUNCH_ENABLED !== "true") {
+    return NextResponse.json(
+      { error: "GoFund launches are temporarily disabled" },
+      { status: 503 },
+    );
+  }
+
   const gate = rateLimit(request, "launch-draft", 12, 60_000);
   if (!gate.ok) {
     return NextResponse.json(

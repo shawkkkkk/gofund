@@ -5,7 +5,7 @@ import { query } from "@/lib/db";
 type Campaign = { id:string; title:string; canonical_url:string; verification_status:"UNVERIFIED"|"VERIFIED"|"OPTED_OUT" };
 type AssetRow = { asset:"SOL"|"USDC"; confirmed:string; reserved:string };
 type TokenRow = { mint:string; name:string; symbol:string; quote_asset:"SOL"|"USDC" };
-type SettlementRow = { id:string; amount_cents:string; source_asset:"SOL"|"USDC"; source_amount_base_units:string; status:string; receipt_url:string|null; donation_reference:string|null };
+type SettlementRow = { id:string; receipt_number:string; amount_cents:string; source_asset:"SOL"|"USDC"; source_amount_base_units:string; status:string; receipt_url:string|null; donation_reference:string|null };
 
 function units(asset:"SOL"|"USDC", raw:string) {
   const decimals = asset === "SOL" ? 9 : 6;
@@ -41,7 +41,7 @@ export default async function CampaignPage({ params }:{ params:Promise<{id:strin
       [id],
     ),
     query<SettlementRow>(
-      "select id::text,amount_cents::text,source_asset,source_amount_base_units::text,status,receipt_url,donation_reference" +
+      "select id::text,receipt_number::text,amount_cents::text,source_asset,source_amount_base_units::text,status,receipt_url,donation_reference" +
       " from settlements where campaign_id=$1 order by created_at desc limit 50",
       [id],
     ),
@@ -102,16 +102,17 @@ export default async function CampaignPage({ params }:{ params:Promise<{id:strin
       <div className="section-head"><div><div className="kicker">Settlements</div><h2>Donation record.</h2></div><Link href="/proof" className="muted">Full proof ledger →</Link></div>
       <div style={{overflowX:"auto"}}>
         <table className="table">
-          <thead><tr><th>Source</th><th>Donation amount</th><th>Status</th><th>Proof</th></tr></thead>
+          <thead><tr><th>Receipt</th><th>Source</th><th>Donation amount</th><th>Status</th><th>Proof</th></tr></thead>
           <tbody>
             {settlementResult.rows.length ? settlementResult.rows.map((s) =>
               <tr key={s.id}>
+                <td><strong>GFS-{s.receipt_number.padStart(6,"0")}</strong></td>
                 <td>{units(s.source_asset,s.source_amount_base_units)} {s.source_asset}</td>
                 <td>{"$"}{(Number(s.amount_cents)/100).toFixed(2)}</td>
                 <td>{s.status}</td>
                 <td>{s.receipt_url ? <a href={s.receipt_url} target="_blank" rel="noreferrer">Receipt ↗</a> : s.donation_reference || "—"}</td>
               </tr>
-            ) : <tr><td colSpan={4}>No settlements recorded yet.</td></tr>}
+            ) : <tr><td colSpan={5}>No settlements recorded yet.</td></tr>}
           </tbody>
         </table>
       </div>

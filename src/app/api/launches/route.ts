@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { PublicKey } from "@solana/web3.js";
-import { appUrl } from "@/lib/config";
+import { appUrl, productionRpcReady } from "@/lib/config";
 import { query } from "@/lib/db";
 import { normalizeGoFundMeUrl } from "@/lib/gofundme";
 import { enforceRequestSize, rateLimit } from "@/lib/rate-limit";
@@ -23,6 +23,12 @@ export async function POST(request: Request) {
   if (process.env.LAUNCH_ENABLED !== "true") {
     return NextResponse.json(
       { error: "GoFund launches are temporarily disabled" },
+      { status: 503 },
+    );
+  }
+  if (process.env.WORKER_ENABLED !== "true" || !productionRpcReady()) {
+    return NextResponse.json(
+      { error: "GoFund production infrastructure is not ready for launches" },
       { status: 503 },
     );
   }

@@ -5,12 +5,8 @@ import {
   Connection,
   Keypair,
   PublicKey,
-  TransactionMessage,
   VersionedTransaction,
-  type TransactionInstruction,
 } from "@solana/web3.js";
-import { PUMP_SDK } from "@pump-fun/pump-sdk";
-import { USDC_MINT } from "@/lib/config";
 
 type Preview = {
   canonicalUrl: string;
@@ -29,6 +25,25 @@ declare global {
 
 const treasury = process.env.NEXT_PUBLIC_GOFUND_TREASURY || "";
 
+function decimalToBaseUnits(value: string, decimals: number) {
+  const trimmed = value.trim();
+  if (!trimmed) return "0";
+  if (!/^\d+(?:\.\d*)?$/.test(trimmed)) {
+    throw new Error("First buy must be a positive decimal amount");
+  }
+  const [whole, fraction = ""] = trimmed.split(".");
+  if (fraction.length > decimals) {
+    throw new Error("First buy has too many decimal places");
+  }
+  const padded = fraction.padEnd(decimals, "0");
+  return (BigInt(whole) * 10n ** BigInt(decimals) + BigInt(padded || "0")).toString();
+}
+
+function decodeBase64(value: string) {
+  const raw = atob(value);
+  return Uint8Array.from(raw, (char) => char.charCodeAt(0));
+}
+
 export default function LaunchForm({ available }: { available: boolean }) {
   const [campaignUrl, setCampaignUrl] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -38,6 +53,7 @@ export default function LaunchForm({ available }: { available: boolean }) {
   const [description, setDescription] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [quote, setQuote] = useState<"SOL" | "USDC">("USDC");
+  const [firstBuy, setFirstBuy] = useState("0");
   const [wallet, setWallet] = useState("");
   const [status, setStatus] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -73,36 +89,25 @@ export default function LaunchForm({ available }: { available: boolean }) {
     }
   }
 
-  async function send(
+  async function signAndSendBuiltLaunch(
     provider: WalletProvider,
-    user: PublicKey,
-    instructions: TransactionInstruction[],
-    extraSigners: Keypair[] = [],
+    mint: Keypair,
+    serializedTransaction: string,
+    blockhash: string,
+    lastValidBlockHeight: number,
   ) {
     const conn = new Connection(window.location.origin + "/api/rpc", "confirmed");
-    const { blockhash, lastValidBlockHeight } =
-      await conn.getLatestBlockhash("confirmed");
-
-    const message = new TransactionMessage({
-      payerKey: user,
-      recentBlockhash: blockhash,
-      instructions,
-    }).compileToV0Message();
-
-    const tx = new VersionedTransaction(message);
-    if (extraSigners.length) tx.sign(extraSigners);
-
+    const tx = VersionedTransaction.deserialize(decodeBase64(serializedTransaction));
+    tx.sign([mint]);
     const signed = await provider.signTransaction(tx);
     const signature = await conn.sendRawTransaction(signed.serialize(), {
       maxRetries: 3,
       skipPreflight: false,
     });
-
     await conn.confirmTransaction(
       { signature, blockhash, lastValidBlockHeight },
       "confirmed",
     );
-
     return signature;
   }
 
@@ -150,7 +155,11 @@ export default function LaunchForm({ available }: { available: boolean }) {
 
       const user = provider.publicKey || (await connect());
       const mint = Keypair.generate();
-      const treasuryKey = new PublicKey(treasury);
+      new PublicKey(treasury);
+      const firstBuyBaseUnits = decimalToBaseUnits(
+        firstBuy,
+        quote === "SOL" ? 9 : 6,
+      );
 
       setStatus([
         "Wallet connected",
@@ -189,6 +198,7 @@ export default function LaunchForm({ available }: { available: boolean }) {
           metadataUri: upload.metadataUri,
           metadataProof: upload.metadataProof,
           quoteAsset: quote,
+          firstBuyBaseUnits,
           launcherWallet: user.toBase58(),
           mint: mint.publicKey.toBase58(),
           eligibilityConfirmed: true,
@@ -199,21 +209,29 @@ export default function LaunchForm({ available }: { available: boolean }) {
         throw new Error(draft.error || "Could not create launch draft");
       }
 
-      const createIx = await PUMP_SDK.createV2Instruction({
-        mint: mint.publicKey,
-        name,
-        symbol: symbol.toUpperCase(),
-        uri: draft.metadataUri,
-        creator: treasuryKey,
-        user,
-        mayhemMode: false,
-        holderReward: false,
-        ...(quote === "USDC"
-          ? { quoteMint: new PublicKey(USDC_MINT) }
-          : {}),
-      });
+      const buildRes = await fetch(
+        "/api/launches/" + mint.publicKey.toBase58() + "/build",
+        { method: "POST" },
+      );
+      const build = await buildRes.json();
+      if (!buildRes.ok) {
+        throw new Error(build.error || "Could not build launch transaction");
+      }
 
-      const launchSig = await send(provider, user, [createIx], [mint]);
+      setStatus((s) => [
+        ...s,
+        firstBuyBaseUnits === "0"
+          ? "GoFund built and fingerprinted the create transaction"
+          : "GoFund built and fingerprinted create + first buy",
+      ]);
+
+      const launchSig = await signAndSendBuiltLaunch(
+        provider,
+        mint,
+        build.serializedTransaction,
+        build.blockhash,
+        build.lastValidBlockHeight,
+      );
       setStatus((s) => [
         ...s,
         "Token created: " + launchSig.slice(0, 8) + "…",
@@ -347,6 +365,21 @@ export default function LaunchForm({ available }: { available: boolean }) {
           <option value="USDC">USDC — recommended for fundraising</option>
           <option value="SOL">SOL</option>
         </select>
+      </div>
+
+      <div className="field">
+        <label>Optional first buy ({quote})</label>
+        <input
+          inputMode="decimal"
+          value={firstBuy}
+          onChange={(e) => setFirstBuy(e.target.value)}
+          placeholder="0"
+        />
+        <small className="muted">
+          {quote === "SOL"
+            ? "0–10 SOL. This is your token purchase, not a fundraiser donation."
+            : "0–10,000 USDC. This is your token purchase, not a fundraiser donation."}
+        </small>
       </div>
 
       <div className="field">

@@ -1,0 +1,34 @@
+name: Abuse or safety report
+description: Report impersonation, misleading claims, malicious fundraiser references, or other abuse.
+title: "[Abuse] "
+labels: ["abuse"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include passwords, wallet seed phrases, private keys, IDs, medical records, or other sensitive personal information. This report is public.
+  - type: input
+    id: url
+    attributes:
+      label: GoFund URL or token mint
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Impersonation
+        - Misleading fundraiser association
+        - Fraud or scam concern
+        - Harmful or prohibited content
+        - Incorrect campaign information
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+    validations:
+      required: true

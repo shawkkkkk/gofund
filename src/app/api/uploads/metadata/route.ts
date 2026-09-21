@@ -9,6 +9,7 @@ import { signMetadataProof } from "@/lib/metadata-proof";
 const textSchema = z.object({
   campaignUrl: z.string().url(),
   launcherWallet: z.string().min(32).max(64),
+  mint: z.string().min(32).max(64),
   name: z.string().trim().min(1).max(32),
   symbol: z.string().trim().min(1).max(10).regex(/^[A-Za-z0-9]+$/),
   description: z.string().max(500).default(""),
@@ -57,11 +58,13 @@ export async function POST(request: Request) {
     const input = textSchema.parse({
       campaignUrl: String(form.get("campaignUrl") || ""),
       launcherWallet: String(form.get("launcherWallet") || ""),
+      mint: String(form.get("mint") || ""),
       name: String(form.get("name") || ""),
       symbol: String(form.get("symbol") || ""),
       description: String(form.get("description") || ""),
     });
     new PublicKey(input.launcherWallet);
+    new PublicKey(input.mint);
 
     const campaign = normalizeGoFundMeUrl(input.campaignUrl);
     const outgoing = new FormData();
@@ -115,6 +118,7 @@ export async function POST(request: Request) {
 
     const payload = {
       metadataUri,
+      mint: input.mint,
       launcherWallet: input.launcherWallet,
       campaignUrl: campaign.canonicalUrl,
       name: input.name,

@@ -22,6 +22,7 @@ create table if not exists tokens (
   description text not null default '',
   image_url text,
   quote_asset text not null check (quote_asset in ('SOL','USDC')),
+  first_buy_base_units numeric(40,0) not null default 0 check (first_buy_base_units >= 0),
   launcher_wallet text not null,
   metadata_uri text not null,
   launch_signature text unique,
@@ -154,3 +155,23 @@ create unique index if not exists settlements_receipt_number_uidx
 alter table collections add column if not exists receipt_number bigserial;
 create unique index if not exists collections_receipt_number_uidx
   on collections(receipt_number);
+
+
+alter table tokens
+  add column if not exists first_buy_base_units numeric(40,0) not null default 0;
+alter table tokens drop constraint if exists tokens_first_buy_base_units_check;
+alter table tokens add constraint tokens_first_buy_base_units_check
+  check (first_buy_base_units >= 0);
+
+create table if not exists launch_builds (
+  mint text primary key,
+  message_hash text not null unique,
+  recent_blockhash text not null,
+  last_valid_block_height bigint not null,
+  first_buy_base_units numeric(40,0) not null default 0,
+  created_at timestamptz not null default now(),
+  foreign key(mint) references tokens(mint) on delete cascade
+);
+
+create index if not exists launch_builds_created_at_idx
+  on launch_builds(created_at);

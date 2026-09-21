@@ -13,8 +13,8 @@ export async function GET() {
     internalAuth: { ok: Boolean(process.env.INTERNAL_API_SECRET) },
     feePayer: { ok: false },
     worker: {
-      ok: process.env.WORKER_ENABLED === "true",
-      detail: process.env.WORKER_ENABLED === "true" ? "enabled" : "disabled",
+      ok: false,
+      detail: process.env.WORKER_ENABLED === "true" ? "awaiting heartbeat" : "disabled",
     },
     appUrl: { ok: false },
     launches: {
@@ -133,6 +133,36 @@ export async function GET() {
     }
   } else {
     checks.feePayer.detail = "not configured";
+  }
+
+  if (process.env.WORKER_ENABLED === "true" && hasDatabase()) {
+    try {
+      const result = await query<{ last_success_at: string | null }>(
+        `select last_success_at::text
+         from worker_state
+         where worker_name='main'`,
+      );
+      const lastSuccess = result.rows[0]?.last_success_at
+        ? new Date(result.rows[0].last_success_at).getTime()
+        : 0;
+      const requested = Number(process.env.WORKER_INTERVAL_MS || "60000");
+      const intervalMs = Number.isFinite(requested)
+        ? Math.max(30_000, requested)
+        : 60_000;
+      const maxAgeMs = Math.max(180_000, intervalMs * 3);
+      const ageMs = lastSuccess ? Date.now() - lastSuccess : Number.POSITIVE_INFINITY;
+      checks.worker = {
+        ok: ageMs <= maxAgeMs,
+        detail:
+          ageMs <= maxAgeMs
+            ? "healthy heartbeat"
+            : "no successful worker heartbeat within " +
+              Math.round(maxAgeMs / 1000) +
+              " seconds",
+      };
+    } catch {
+      checks.worker = { ok: false, detail: "worker heartbeat unavailable" };
+    }
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;

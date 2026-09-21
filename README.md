@@ -6,6 +6,8 @@ GoFund is a fundraising launchpad for Pump tokens. A launcher selects a public G
 
 > GoFund is independent and is not affiliated with, endorsed by, or operated by GoFundMe or Pump.fun.
 
+**Production treasury (public address):** `GGciVuVWMy5s4A3v7yUbzpo2nHZAjrh7qeb9qRyGZJoG`
+
 ## Core invariant
 
 A token is never shown as active until GoFund independently verifies on-chain that:

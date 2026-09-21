@@ -37,6 +37,8 @@ jobs:
           fi
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
+      - name: Solana RPC compatibility smoke
+        run: npm run smoke:web3
       - name: Typecheck
         run: npm run typecheck
       - name: Production build

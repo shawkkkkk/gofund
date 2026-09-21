@@ -8,20 +8,21 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "db:migrate": "node scripts/migrate.cjs",
-    "smoke:web3": "node scripts/smoke-web3.cjs"
+    "smoke:web3": "node scripts/smoke-web3.cjs",
+    "smoke:bigint": "node scripts/smoke-bigint-buffer.cjs"
   },
   "dependencies": {
     "@pump-fun/pump-sdk": "2.0.0",
     "@solana/spl-token": "0.4.15",
     "@solana/web3.js": "1.99.0",
-    "bn.js": "5.2.5",
     "bs58": "6.0.0",
     "next": "16.3.5",
     "pg": "8.23.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "4.6.5",
-    "@pump-fun/pump-swap-sdk": "1.20.0"
+    "@pump-fun/pump-swap-sdk": "1.20.0",
+    "bigint-buffer": "file:vendor/bigint-buffer-safe"
   },
   "devDependencies": {
     "@types/bn.js": "^5.2.0",
@@ -37,6 +38,8 @@
   "packageManager": "npm@10.9.8",
   "overrides": {
     "jayson": "5.0.0",
-    "toml": "4.2.0"
+    "toml": "4.2.0",
+    "bn.js": "5.2.5",
+    "bigint-buffer": "$bigint-buffer"
   }
 }

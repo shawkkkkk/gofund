@@ -80,11 +80,12 @@ export async function POST(request: Request) {
         }
 
         const keys = tx.message.staticAccountKeys;
-        const invokesPump = tx.message.compiledInstructions.some((ix) => {
-          const program = keys[ix.programIdIndex];
-          return program?.toBase58() === PUMP_PROGRAM_ID;
-        });
-        if (!invokesPump) {
+        if (tx.message.compiledInstructions.length !== 1) {
+          throw new Error("GoFund launch transactions must contain exactly one top-level instruction");
+        }
+        const instruction = tx.message.compiledInstructions[0];
+        const program = keys[instruction.programIdIndex];
+        if (program?.toBase58() !== PUMP_PROGRAM_ID) {
           throw new Error("Only Pump launch transactions may be broadcast");
         }
       } catch (error) {

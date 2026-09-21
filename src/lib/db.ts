@@ -10,7 +10,7 @@ function createPool() {
   return new Pool({
     connectionString,
     max: 5,
-    ssl: connectionString.includes("localhost") ? undefined : { rejectUnauthorized: false },
+    ssl: connectionString.includes("localhost") ? undefined : { rejectUnauthorized: true },
   });
 }
 

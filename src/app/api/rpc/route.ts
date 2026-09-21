@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { VersionedTransaction } from "@solana/web3.js";
 import { enforceRequestSize, rateLimit } from "@/lib/rate-limit";
-import { rpcUrl } from "@/lib/config";
+import { productionRpcReady, rpcUrl } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -47,12 +47,19 @@ export async function POST(request: Request) {
     }
 
     if (method === "sendTransaction") {
-      if (process.env.LAUNCH_ENABLED !== "true") {
+      if (
+        process.env.LAUNCH_ENABLED !== "true" ||
+        process.env.WORKER_ENABLED !== "true" ||
+        !productionRpcReady()
+      ) {
         return NextResponse.json(
           {
             jsonrpc: "2.0",
             id: payload.id ?? null,
-            error: { code: -32004, message: "GoFund launches are disabled" },
+            error: {
+              code: -32004,
+              message: "GoFund production infrastructure is not ready for launches",
+            },
           },
           { status: 503 },
         );

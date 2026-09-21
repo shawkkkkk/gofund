@@ -13,6 +13,7 @@ type FeeEvent = {
 };
 
 type Collection = {
+  receipt_number: string;
   signature: string;
   sol_amount_base_units: string | null;
   usdc_amount_base_units: string | null;
@@ -22,6 +23,7 @@ type Collection = {
 
 type Settlement = {
   id: string;
+  receipt_number: string;
   source_asset: "SOL" | "USDC";
   source_amount_base_units: string;
   amount_cents: string;
@@ -61,14 +63,14 @@ export default async function ProofPage() {
            limit 150`,
         ),
         query<Collection>(
-          `select signature,sol_amount_base_units::text,
+          `select receipt_number::text,signature,sol_amount_base_units::text,
                   usdc_amount_base_units::text,status,confirmed_at::text
            from collections
            order by created_at desc
            limit 100`,
         ),
         query<Settlement>(
-          `select s.id::text,s.source_asset,
+          `select s.id::text,s.receipt_number::text,s.source_asset,
                   s.source_amount_base_units::text,
                   s.amount_cents::text,s.status,s.conversion_reference,
                   s.donation_reference,s.receipt_url,s.created_at::text,c.title
@@ -140,11 +142,12 @@ export default async function ProofPage() {
       <div style={{overflowX:"auto"}}>
         <table className="table">
           <thead>
-            <tr><th>SOL received</th><th>USDC received</th><th>Status</th><th>Transaction</th></tr>
+            <tr><th>Receipt</th><th>SOL received</th><th>USDC received</th><th>Status</th><th>Transaction</th></tr>
           </thead>
           <tbody>
             {collections.length ? collections.map((row) =>
               <tr key={row.signature}>
+                <td><strong>GFC-{row.receipt_number.padStart(6,"0")}</strong></td>
                 <td>{formatBaseUnits("SOL",row.sol_amount_base_units || "0")}</td>
                 <td>{formatBaseUnits("USDC",row.usdc_amount_base_units || "0")}</td>
                 <td>{row.status}</td>
@@ -158,7 +161,7 @@ export default async function ProofPage() {
                   </a>
                 </td>
               </tr>
-            ) : <tr><td colSpan={4}>No treasury collections recorded yet.</td></tr>}
+            ) : <tr><td colSpan={5}>No treasury collections recorded yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -173,11 +176,12 @@ export default async function ProofPage() {
       <div style={{overflowX:"auto"}}>
         <table className="table">
           <thead>
-            <tr><th>Campaign</th><th>Source obligation</th><th>Donation</th><th>Status</th><th>Proof</th></tr>
+            <tr><th>Receipt</th><th>Campaign</th><th>Source obligation</th><th>Donation</th><th>Status</th><th>Proof</th></tr>
           </thead>
           <tbody>
             {settlements.length ? settlements.map((row) =>
               <tr key={row.id}>
+                <td><strong>GFS-{row.receipt_number.padStart(6,"0")}</strong></td>
                 <td>{row.title}</td>
                 <td>
                   {formatBaseUnits(row.source_asset,row.source_amount_base_units)}
@@ -193,7 +197,7 @@ export default async function ProofPage() {
                     : row.donation_reference || "—"}
                 </td>
               </tr>
-            ) : <tr><td colSpan={5}>No settlements recorded yet.</td></tr>}
+            ) : <tr><td colSpan={6}>No settlements recorded yet.</td></tr>}
           </tbody>
         </table>
       </div>

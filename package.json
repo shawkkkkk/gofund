@@ -22,7 +22,8 @@
     "react-dom": "19.3.0",
     "zod": "4.6.5",
     "@pump-fun/pump-swap-sdk": "1.20.0",
-    "bigint-buffer": "file:vendor/bigint-buffer-safe"
+    "bigint-buffer": "file:vendor/bigint-buffer-safe",
+    "bn.js": "5.2.5"
   },
   "devDependencies": {
     "@types/bn.js": "^5.2.0",

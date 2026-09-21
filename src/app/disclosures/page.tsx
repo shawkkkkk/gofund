@@ -12,6 +12,7 @@ export default function Disclosures() {
         <article className="card"><h3>Community references</h3><p className="muted">Until an organizer is verified, fundraiser labels are community-supplied references to a public GoFundMe URL. Verification status is shown separately.</p></article>
         <article className="card"><h3>Public blockchain</h3><p className="muted">Launches and fee events occur on Solana and are publicly visible. Blockchain transactions generally cannot be reversed by GoFund.</p></article>
         <article className="card"><h3>Settlement is separate</h3><p className="muted">GoFundMe settlement uses supported off-chain payment methods. A blockchain transaction is not presented as proof that GoFundMe received a donation.</p></article>
+        <article className="card"><h3>Not Pump&apos;s built-in charity flow</h3><p className="muted">Pump.fun separately offers a Donate.gg-based charity feature. GoFund is independent of that feature. GoFund creator fees route to the configured GoFund treasury and are reconciled to a referenced GoFundMe fundraiser through GoFund&apos;s separate settlement process.</p></article>
         <article className="card"><h3>No affiliation</h3><p className="muted">Names and links identifying third-party services or fundraisers are used for reference. No partnership or endorsement should be inferred unless explicitly announced by the relevant party.</p></article>
       </div>
     </section>

@@ -1,0 +1,11 @@
+{
+  "name": "bigint-buffer",
+  "version": "1.1.6-gofund.0",
+  "private": true,
+  "description": "Pure-JavaScript bigint-buffer compatibility implementation used by GoFund",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "engines": {
+    "node": ">=18"
+  }
+}

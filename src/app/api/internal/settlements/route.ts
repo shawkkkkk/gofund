@@ -21,7 +21,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("setStatus"),
     settlementId: z.string().uuid(),
-    status: z.enum(["PROCESSING", "FAILED", "CANCELLED"]),
+    status: z.enum(["PROCESSING", "HELD", "FAILED", "CANCELLED"]),
     note: z.string().max(500).optional(),
   }),
   z.object({
@@ -67,7 +67,7 @@ export async function GET(request: Request) {
          select campaign_id,source_asset as asset,
                 coalesce(sum(source_amount_base_units),0)::numeric as reserved
          from settlements
-         where status in ('QUEUED','PROCESSING','COMPLETED')
+         where status in ('QUEUED','PROCESSING','HELD','COMPLETED')
          group by campaign_id,source_asset
        ),
        collected as (
@@ -83,7 +83,7 @@ export async function GET(request: Request) {
          select source_asset as asset,
                 coalesce(sum(source_amount_base_units),0)::numeric as amount
          from settlements
-         where status in ('QUEUED','PROCESSING','COMPLETED')
+         where status in ('QUEUED','PROCESSING','HELD','COMPLETED')
          group by source_asset
        )
        select
@@ -179,7 +179,7 @@ export async function POST(request: Request) {
                from settlements s
                where s.campaign_id = $1
                  and s.source_asset = $2
-                 and s.status in ('QUEUED','PROCESSING','COMPLETED')
+                 and s.status in ('QUEUED','PROCESSING','HELD','COMPLETED')
              ), 0)::text as reserved`,
           [input.campaignId, input.sourceAsset],
         );
@@ -210,7 +210,7 @@ export async function POST(request: Request) {
                select sum(s.source_amount_base_units)
                from settlements s
                where s.source_asset=$1
-                 and s.status in ('QUEUED','PROCESSING','COMPLETED')
+                 and s.status in ('QUEUED','PROCESSING','HELD','COMPLETED')
              ),0)::text as reserved`,
           [input.sourceAsset],
         );
@@ -292,7 +292,7 @@ export async function POST(request: Request) {
          set status = $1,
              note = coalesce($2, note)
          where id = $3
-           and status in ('QUEUED','PROCESSING')
+           and status in ('QUEUED','PROCESSING','HELD')
          returning status`,
         [input.status, input.note || null, input.settlementId],
       );
@@ -318,7 +318,7 @@ export async function POST(request: Request) {
            receipt_url = $2,
            completed_at = now()
        where id = $3
-         and status in ('QUEUED','PROCESSING')
+         and status in ('QUEUED','PROCESSING','HELD')
        returning campaign_id::text, source_asset, source_amount_base_units::text, amount_cents::text`,
       [input.donationReference, input.receiptUrl || null, input.settlementId],
     );

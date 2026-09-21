@@ -48,6 +48,10 @@ export async function POST(request: Request) {
           "select pg_advisory_xact_lock(hashtext($1), hashtext($2))",
           [input.campaignId, input.sourceAsset],
         );
+        await client.query(
+          "select pg_advisory_xact_lock(hashtext('GOFUND_GLOBAL_LIQUIDITY'), hashtext($1))",
+          [input.sourceAsset],
+        );
 
         const balance = await client.query<{
           claimed: string;
@@ -71,14 +75,54 @@ export async function POST(request: Request) {
           [input.campaignId, input.sourceAsset],
         );
 
-        const claimed = BigInt(balance.rows[0]?.claimed || "0");
-        const reserved = BigInt(balance.rows[0]?.reserved || "0");
+        const campaignGenerated = BigInt(balance.rows[0]?.claimed || "0");
+        const campaignReserved = BigInt(balance.rows[0]?.reserved || "0");
         const requested = BigInt(input.sourceAmountBaseUnits);
-        const available = claimed - reserved;
+        const campaignAvailable = campaignGenerated - campaignReserved;
 
-        if (requested > available) {
+        const treasury = await client.query<{
+          collected: string;
+          reserved: string;
+        }>(
+          `select
+             case
+               when $1 = 'SOL' then coalesce((
+                 select sum(c.sol_amount_base_units)
+                 from collections c
+                 where c.status='CONFIRMED'
+               ),0)
+               else coalesce((
+                 select sum(c.usdc_amount_base_units)
+                 from collections c
+                 where c.status='CONFIRMED'
+               ),0)
+             end::text as collected,
+             coalesce((
+               select sum(s.source_amount_base_units)
+               from settlements s
+               where s.source_asset=$1
+                 and s.status in ('QUEUED','PROCESSING','COMPLETED')
+             ),0)::text as reserved`,
+          [input.sourceAsset],
+        );
+
+        const treasuryCollected = BigInt(treasury.rows[0]?.collected || "0");
+        const treasuryReserved = BigInt(treasury.rows[0]?.reserved || "0");
+        const treasuryAvailable = treasuryCollected - treasuryReserved;
+        const available =
+          campaignAvailable < treasuryAvailable
+            ? campaignAvailable
+            : treasuryAvailable;
+
+        if (requested > campaignAvailable) {
           throw new Error(
-            `Settlement exceeds confirmed unreserved funds: requested ${requested}, available ${available}`,
+            `Settlement exceeds campaign-earned unreserved funds: requested ${requested}, available ${campaignAvailable}`,
+          );
+        }
+
+        if (requested > treasuryAvailable) {
+          throw new Error(
+            `Settlement exceeds collected treasury liquidity: requested ${requested}, available ${treasuryAvailable}`,
           );
         }
 
@@ -122,6 +166,8 @@ export async function POST(request: Request) {
           ok: true,
           id: inserted.rows[0].id,
           availableBeforeBaseUnits: available.toString(),
+          campaignAvailableBeforeBaseUnits: campaignAvailable.toString(),
+          treasuryAvailableBeforeBaseUnits: treasuryAvailable.toString(),
         });
       } catch (e) {
         await client.query("rollback");

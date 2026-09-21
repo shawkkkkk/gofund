@@ -17,6 +17,10 @@ export async function GET() {
       detail: process.env.WORKER_ENABLED === "true" ? "enabled" : "disabled",
     },
     appUrl: { ok: false },
+    launches: {
+      ok: process.env.LAUNCH_ENABLED === "true",
+      detail: process.env.LAUNCH_ENABLED === "true" ? "enabled" : "disabled",
+    },
   };
 
   if (hasDatabase()) {

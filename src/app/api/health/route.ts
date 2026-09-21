@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { hasDatabase, query } from "@/lib/db";
 import { productionRpcReady, rpcUrl } from "@/lib/config";
 
@@ -92,10 +92,30 @@ export async function GET() {
   if (feePayer) {
     try {
       const parsed = JSON.parse(feePayer) as number[];
-      Keypair.fromSecretKey(Uint8Array.from(parsed));
-      checks.feePayer = { ok: true, detail: "configured" };
+      const keypair = Keypair.fromSecretKey(Uint8Array.from(parsed));
+      if (!productionRpcReady()) {
+        checks.feePayer = {
+          ok: false,
+          detail: "key configured; dedicated RPC required to verify gas balance",
+        };
+      } else {
+        const minimum = BigInt(process.env.MIN_FEE_PAYER_LAMPORTS || "10000000");
+        const balance = BigInt(
+          await new Connection(rpcUrl(), "confirmed").getBalance(
+            keypair.publicKey,
+            "confirmed",
+          ),
+        );
+        checks.feePayer = {
+          ok: balance >= minimum,
+          detail:
+            balance >= minimum
+              ? "funded"
+              : "insufficient SOL for automation gas",
+        };
+      }
     } catch {
-      checks.feePayer = { ok: false, detail: "invalid key encoding" };
+      checks.feePayer = { ok: false, detail: "invalid key or RPC balance check failed" };
     }
   } else {
     checks.feePayer.detail = "not configured";

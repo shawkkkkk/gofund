@@ -127,3 +127,13 @@ create table if not exists collections (
 );
 
 create index if not exists collections_status_idx on collections(status, created_at);
+
+
+create table if not exists worker_state (
+  worker_name text primary key,
+  last_attempt_at timestamptz,
+  last_success_at timestamptz,
+  last_error_at timestamptz,
+  last_error text,
+  updated_at timestamptz not null default now()
+);

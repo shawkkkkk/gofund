@@ -22,8 +22,17 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         </header>
         {children}
         <footer className="shell footer">
-          <div><strong>GoFund</strong> · Every trade gives.</div>
-          <div className="muted">Independent project. Not affiliated with GoFundMe or Pump.fun.</div>
+          <div>
+            <strong>GoFund</strong> · Every trade gives.
+            <div className="muted" style={{marginTop:8}}>Independent project. Not affiliated with GoFundMe or Pump.fun.</div>
+          </div>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+            <Link href="/docs">Docs</Link>
+            <Link href="/disclosures">Disclosures</Link>
+            <Link href="/terms">Terms</Link>
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/organizers">Organizers</Link>
+          </div>
         </footer>
       </body>
     </html>

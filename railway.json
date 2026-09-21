@@ -2,12 +2,21 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "RAILPACK",
-    "buildCommand": "npm run typecheck && npm run build",
-    "watchPatterns": ["src/**", "db/**", "scripts/**", "package.json", "next.config.ts", "railway.json"]
+    "buildCommand": "npm audit --omit=dev --json || true; npm run typecheck && npm run build",
+    "watchPatterns": [
+      "src/**",
+      "db/**",
+      "scripts/**",
+      "package.json",
+      "next.config.ts",
+      "railway.json"
+    ]
   },
   "deploy": {
     "startCommand": "npm run start",
-    "preDeployCommand": ["npm run db:migrate"],
+    "preDeployCommand": [
+      "npm run db:migrate"
+    ],
     "healthcheckPath": "/api/live",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",

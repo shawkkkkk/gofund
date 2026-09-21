@@ -66,6 +66,7 @@ export async function POST(request: Request) {
     const metadataVerified = verifyMetadataProof(
       {
         metadataUri: input.metadataUri,
+        mint: input.mint,
         launcherWallet: input.launcherWallet,
         campaignUrl: campaign.canonicalUrl,
         name: input.name,

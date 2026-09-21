@@ -13,7 +13,7 @@ export default function Organizers() {
       </div>
       <div className="panel" style={{marginTop:24}}>
         <h3>Request channel</h3>
-        <p>Until the dedicated organizer verification portal is enabled, organizer requests should be submitted through the project&apos;s official support channel published on the GoFund website. GoFund should not request wallet seed phrases, banking passwords, or other authentication secrets as proof.</p>
+        <p>Until the dedicated organizer verification portal is enabled, submit an <a href="https://github.com/shawkkkkk/gofund/issues/new?template=organizer-request.yml" target="_blank" rel="noreferrer">organizer request ↗</a> or <a href="https://github.com/shawkkkkk/gofund/issues/new?template=abuse-report.yml" target="_blank" rel="noreferrer">abuse report ↗</a> through the public project repository. Do not include sensitive personal information. GoFund should never request wallet seed phrases, private keys, banking passwords, or authentication secrets as proof.</p>
       </div>
     </section>
   </main>;

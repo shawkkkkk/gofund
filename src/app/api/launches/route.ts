@@ -5,6 +5,7 @@ import { appUrl, productionRpcReady } from "@/lib/config";
 import { query } from "@/lib/db";
 import { normalizeGoFundMeUrl } from "@/lib/gofundme";
 import { enforceRequestSize, rateLimit } from "@/lib/rate-limit";
+import { verifyMetadataProof } from "@/lib/metadata-proof";
 
 const schema = z.object({
   campaignUrl: z.string().url(),
@@ -12,7 +13,8 @@ const schema = z.object({
   name: z.string().trim().min(1).max(32),
   symbol: z.string().trim().min(1).max(10).regex(/^[A-Za-z0-9]+$/),
   description: z.string().max(500).default(""),
-  imageUrl: z.string().url().nullable().optional(),
+  metadataUri: z.string().url(),
+  metadataProof: z.string().regex(/^[a-f0-9]{64}$/i),
   quoteAsset: z.enum(["SOL", "USDC"]),
   launcherWallet: z.string(),
   mint: z.string(),
@@ -48,6 +50,23 @@ export async function POST(request: Request) {
     new PublicKey(input.mint);
 
     const campaign = normalizeGoFundMeUrl(input.campaignUrl);
+    const metadataVerified = verifyMetadataProof(
+      {
+        metadataUri: input.metadataUri,
+        launcherWallet: input.launcherWallet,
+        campaignUrl: campaign.canonicalUrl,
+        name: input.name,
+        symbol: input.symbol.toUpperCase(),
+        description: input.description,
+      },
+      input.metadataProof,
+    );
+    if (!metadataVerified) {
+      return NextResponse.json(
+        { error: "Token metadata was not uploaded through this GoFund launch" },
+        { status: 409 },
+      );
+    }
     const existing = await query<{
       id: string;
       title: string;
@@ -69,7 +88,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const metadataUri = `${appUrl()}/api/metadata/${input.mint}`;
+    const metadataUri = input.metadataUri;
 
     await query(
       `insert into tokens(
@@ -82,7 +101,7 @@ export async function POST(request: Request) {
         input.name,
         input.symbol.toUpperCase(),
         input.description,
-        input.imageUrl || null,
+        null,
         input.quoteAsset,
         input.launcherWallet,
         metadataUri,

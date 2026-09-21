@@ -27,9 +27,6 @@ declare global {
   interface Window { solana?: WalletProvider }
 }
 
-const rpc =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
-  "https://api.mainnet-beta.solana.com";
 const treasury = process.env.NEXT_PUBLIC_GOFUND_TREASURY || "";
 
 export default function LaunchForm() {
@@ -81,7 +78,7 @@ export default function LaunchForm() {
     instructions: TransactionInstruction[],
     extraSigners: Keypair[] = [],
   ) {
-    const conn = new Connection(rpc, "confirmed");
+    const conn = new Connection(window.location.origin + "/api/rpc", "confirmed");
     const { blockhash, lastValidBlockHeight } =
       await conn.getLatestBlockhash("confirmed");
 

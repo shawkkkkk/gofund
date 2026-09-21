@@ -14,3 +14,26 @@ export function treasuryAddress() {
   if (!value) throw new Error("GOFUND_TREASURY is not configured");
   return value;
 }
+
+export function isPublicSolanaRpc(value = rpcUrl()) {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return [
+      "api.mainnet.solana.com",
+      "api.mainnet-beta.solana.com",
+    ].includes(host);
+  } catch {
+    return true;
+  }
+}
+
+export function productionRpcReady() {
+  const value = process.env.SOLANA_RPC_URL;
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" && !isPublicSolanaRpc(value);
+  } catch {
+    return false;
+  }
+}

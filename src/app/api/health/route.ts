@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { hasDatabase, query } from "@/lib/db";
-import { rpcUrl } from "@/lib/config";
+import { productionRpcReady, rpcUrl } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -77,12 +77,12 @@ export async function GET() {
 
   try {
     const url = new URL(rpcUrl());
-    const publicRpc = process.env.NEXT_PUBLIC_SOLANA_RPC_URL;
+    const privateReady = productionRpcReady();
     checks.rpc = {
-      ok:
-        (url.protocol === "https:" || url.hostname === "localhost") &&
-        Boolean(publicRpc),
-      detail: url.hostname,
+      ok: privateReady,
+      detail: privateReady
+        ? url.hostname
+        : "dedicated HTTPS Solana RPC required; public cluster RPC is not launch-ready",
     };
   } catch {
     checks.rpc = { ok: false, detail: "invalid URL" };

@@ -21,8 +21,32 @@ export async function GET() {
 
   if (hasDatabase()) {
     try {
-      await query("select 1");
-      checks.database = { ok: true };
+      const schema = await query<{
+        campaigns: string | null;
+        tokens: string | null;
+        fee_events: string | null;
+        collections: string | null;
+        settlements: string | null;
+      }>(
+        `select
+           to_regclass('public.campaigns')::text as campaigns,
+           to_regclass('public.tokens')::text as tokens,
+           to_regclass('public.fee_events')::text as fee_events,
+           to_regclass('public.collections')::text as collections,
+           to_regclass('public.settlements')::text as settlements`,
+      );
+      const row = schema.rows[0];
+      const complete = Boolean(
+        row?.campaigns &&
+        row?.tokens &&
+        row?.fee_events &&
+        row?.collections &&
+        row?.settlements,
+      );
+      checks.database = {
+        ok: complete,
+        detail: complete ? "schema ready" : "schema incomplete",
+      };
     } catch {
       checks.database = { ok: false, detail: "unreachable" };
     }

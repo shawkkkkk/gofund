@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { PublicKey } from "@solana/web3.js";
-import { appUrl, productionRpcReady } from "@/lib/config";
+import { productionRpcReady } from "@/lib/config";
 import { query } from "@/lib/db";
 import { normalizeGoFundMeUrl } from "@/lib/gofundme";
 import { enforceRequestSize, rateLimit } from "@/lib/rate-limit";

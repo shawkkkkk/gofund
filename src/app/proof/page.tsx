@@ -31,6 +31,7 @@ type Settlement = {
   conversion_reference: string | null;
   donation_reference: string | null;
   receipt_url: string | null;
+  note: string | null;
   created_at: string;
   title: string;
 };
@@ -73,7 +74,7 @@ export default async function ProofPage() {
           `select s.id::text,s.receipt_number::text,s.source_asset,
                   s.source_amount_base_units::text,
                   s.amount_cents::text,s.status,s.conversion_reference,
-                  s.donation_reference,s.receipt_url,s.created_at::text,c.title
+                  s.donation_reference,s.receipt_url,s.note,s.created_at::text,c.title
            from settlements s
            join campaigns c on c.id=s.campaign_id
            order by s.created_at desc
@@ -150,7 +151,12 @@ export default async function ProofPage() {
                 <td><strong>GFC-{row.receipt_number.padStart(6,"0")}</strong></td>
                 <td>{formatBaseUnits("SOL",row.sol_amount_base_units || "0")}</td>
                 <td>{formatBaseUnits("USDC",row.usdc_amount_base_units || "0")}</td>
-                <td>{row.status}</td>
+                <td>
+                  {row.status}
+                  {row.status === "HELD" && row.note && <>
+                    <br/><small className="muted">{row.note}</small>
+                  </>}
+                </td>
                 <td>
                   <a
                     href={"https://explorer.solana.com/tx/" + row.signature}
